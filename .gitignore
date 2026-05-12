@@ -1,0 +1,8 @@
+# 환경변수 파일
+.env
+# venv
+.venv
+# db파일
+*.db
+# 세션정보
+session.*

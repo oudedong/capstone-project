@@ -1,0 +1,9 @@
+services:
+  gemini-agent:
+    build: .
+    volumes:
+      - .:/app  # 프로젝트 루트 전체를 연결해서 mcp-config.json과 workspace를 다 보게 함
+      - /app/.venv # /app/.venv는 따로
+    env_file: .env
+    stdin_open: true
+    tty: true

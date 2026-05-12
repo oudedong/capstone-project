@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "DB_tools": {
+      "command": "./.venv/bin/python3",
+      "args": ["./scripts/new/my_db_mcp.py"]
+    },
+    "browser_tools": {
+      "command": "./.venv/bin/python3",
+      "args": ["./scripts/new/browser_tools_mcp.py"]
+    }
+  }
+}

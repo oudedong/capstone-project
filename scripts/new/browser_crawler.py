@@ -6,7 +6,7 @@ from typing import Callable
 from browser_session import get_shared_context, wait_dom_stable, is_interactable, SESSION_FILE
 from html_cleaner import recursive_iframe_replace, clean_html
 
-from my_db import Global_visit_db_page_url
+from my_db import Global_visit_db_page_url, insert_page_content, _get
 
 # ── 페이지 가져오기 ────────────────────────────────────────────────────────────
 
@@ -207,7 +207,7 @@ async def get_sub_urls_by_click(url: str, visited, depth: int = 1) -> list[dict]
     page = await context.new_page()
 
     queue = deque([(url, 0)])
-    visited.add({"url": url, "title":None})
+    visited.add({"url": url, "title": None})
     rets = []
 
     try:
@@ -216,7 +216,8 @@ async def get_sub_urls_by_click(url: str, visited, depth: int = 1) -> list[dict]
             if depth > 0 and cur_depth >= depth:
                 continue
             
-            response = await page.goto(cur_url, wait_until="domcontentloaded", timeout=0)
+            await page.goto(cur_url, wait_until="domcontentloaded", timeout=0)
+            await page.wait_for_load_state("networkidle", timeout=5000)
 
             for i in range(len(page.frames)):
                 try:
@@ -234,6 +235,54 @@ async def get_sub_urls_by_click(url: str, visited, depth: int = 1) -> list[dict]
 
     return rets
 
+
+async def populate_page_contents(db_path: str) -> str:
+    """
+    DB에 저장된 page_urls 중 본문(page_contents)이 없는 페이지들을 방문하여
+    본문을 추출하고 저장합니다.
+    """
+    from my_db import _get, insert_page_content
+    
+    # 본문이 없는 URL들 조회
+    query = """
+    SELECT id, url FROM page_urls 
+    WHERE id NOT IN (SELECT url_id FROM page_contents)
+    """
+    # _get은 단순 테이블 조회용이므로 직접 쿼리를 위해 sqlite3 사용
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(query)
+    targets = cursor.fetchall()
+    conn.close()
+
+    if not targets:
+        return "수집할 새로운 본문이 없습니다."
+
+    context, browser = await get_shared_context()
+    page = await context.new_page()
+
+    count = 0
+    try:
+        for url_id, url in targets:
+            try:
+                print(f"[*] 본문 수집 중 ({count+1}/{len(targets)}): {url}", file=sys.stderr)
+                # await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                # await page.wait_for_load_state("networkidle", timeout=5000)
+                await wait_dom_stable()
+                
+                raw_content = await recursive_iframe_replace(page.main_frame)
+                cleaned_content = clean_html(raw_content)
+                insert_page_content(db_path, url_id, cleaned_content)
+                count += 1
+            except Exception as e:
+                print(f"[!] {url} 수집 실패: {e}", file=sys.stderr)
+                continue
+    finally:
+        await browser.close()
+
+    return f"총 {count}개의 페이지 본문 수집 완료"
+
 async def get_sub_urls_by_click_db(url: str, db_path:str , depth: int = 1) -> list[dict]:
     """
     방문처리를 db를 이용하는 get_sub_urls_by_click
@@ -241,7 +290,7 @@ async def get_sub_urls_by_click_db(url: str, db_path:str , depth: int = 1) -> li
     return await get_sub_urls_by_click(url, Global_visit_db_page_url(db_path), depth)
 
 class Global_visit_set_page_url:
-    """db를 이용한 방문집합"""
+    """set을 이용한 방문집합, 디버깅용"""
     def __init__(self):
         self.set = set()
     # db에서 in연산
@@ -250,8 +299,9 @@ class Global_visit_set_page_url:
     def add(self, data:dict) -> str:
         self.set.add(data['url'])
 
-async def get_sub_urls_by_click_set(url: str, db_path:str , depth: int = 1) -> list[dict]:
+async def get_sub_urls_by_click_set(url: str, depth: int = 1) -> list[dict]:
     """
     방문처리를 db를 이용하는 get_sub_urls_by_click
     """
     return await get_sub_urls_by_click(url, Global_visit_set_page_url(), depth)
+

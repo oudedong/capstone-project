@@ -1,10 +1,10 @@
 from mcp.server.fastmcp import FastMCP
 from my_db import (
     init_db,
-    insert_origin_url, insert_page_url, insert_todo,
+    insert_origin_url, insert_page_url, insert_todo, insert_page_content,
     get_origin_urls, get_page_urls,
-    get_todo_list_all, get_todo_list_done, get_todo_list_overdue,
-    check_done_todo_list,
+    get_todo_list_all, get_todo_list_done, get_todo_list_overdue, get_unprocessed_page_contents,
+    check_done_todo_list, mark_page_content_processed,
     delete_done_todo_list, delete_overdue_todo_list, delete_done_page_urls,
 )
 
@@ -65,6 +65,18 @@ def insert_db_todo_list(path: str, url: str, content: str, due_date: str) -> str
     """
     return insert_todo(path, url, content, due_date)
 
+@mcp.tool()
+def insert_db_page_content(path: str, url_id: int, content: str) -> str:
+    """
+    수집된 페이지의 본문 내용을 저장합니다.
+
+    Args:
+        path: 데이터베이스 파일 경로
+        url_id: page_urls 테이블의 해당 id
+        content: 페이지의 본문 내용
+    """
+    return insert_page_content(path, url_id, content)
+
 
 # ── 조회 ──────────────────────────────────────────────────────────────────────
 
@@ -105,6 +117,11 @@ def get_db_todo_list_overdue(path: str) -> str:
     """기한이 지난 일정들을 조회하여 JSON 형식으로 반환합니다."""
     return get_todo_list_overdue(path)
 
+@mcp.tool()
+def get_db_unprocessed_page_contents(path: str) -> str:
+    """처리되지 않은 페이지 본문 목록을 조회하여 JSON 형식으로 반환합니다."""
+    return get_unprocessed_page_contents(path)
+
 
 # ── 업데이트 ──────────────────────────────────────────────────────────────────
 
@@ -118,6 +135,17 @@ def check_done_todo_list_tool(path: str, ids: list[int]) -> str:
         ids: 완료 처리할 일정들의 ID 목록
     """
     return check_done_todo_list(path, ids)
+
+@mcp.tool()
+def mark_db_page_content_processed(path: str, ids: list[int]) -> str:
+    """
+    요청한 ID들에 해당하는 페이지 본문들을 처리 완료(is_processed=1) 상태로 변경합니다.
+
+    Args:
+        path: 데이터베이스 파일 경로
+        ids: 처리 완료할 페이지 본문들의 ID 목록
+    """
+    return mark_page_content_processed(path, ids)
 
 
 # ── 삭제 ──────────────────────────────────────────────────────────────────────

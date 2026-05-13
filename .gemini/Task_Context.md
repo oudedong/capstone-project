@@ -18,7 +18,15 @@
   - `title`: TEXT (UNIQUE)
   - `last_check`: TEXT (마지막 확인 시간)
 
-### 3. todo_list (할 일 목록)
+### 3. page_contents (페이지 본문 저장)
+- **용도**: 수집된 페이지의 본문 내용을 저장하여 비동기 분석에 활용
+- **구조**:
+  - `id`: INTEGER (PK, 자동 증가)
+  - `url_id`: INTEGER (FK, page_urls의 id 참조)
+  - `content`: TEXT (페이지의 본문 내용)
+  - `is_processed`: BOOLEAN (기본값 0, 분석 완료 여부)
+
+### 4. todo_list (할 일 목록)
 - **용도**: 사용자의 작업, 마감 기한 및 관련 링크 관리
 - **구조**:
   - `id`: INTEGER (PK)

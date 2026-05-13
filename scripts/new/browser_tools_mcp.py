@@ -1,5 +1,5 @@
 from mcp.server.fastmcp import FastMCP
-from browser_crawler import request_to_user, get_page, get_sub_urls_by_click_db, get_sub_urls_by_click_set
+from browser_crawler import request_to_user, get_page, get_sub_urls_by_click_db, get_sub_urls_by_click_set, populate_page_contents
 
 mcp = FastMCP("browser_tools")
 
@@ -70,6 +70,18 @@ async def get_sub_urls_by_click_tool_set(url: str, depth: int = 1) -> list[dict]
             title: 이동된 페이지의 제목
     """
     return await get_sub_urls_by_click_set(url, depth)
+
+@mcp.tool()
+async def populate_page_contents_tool(db_path: str) -> str:
+    """
+    DB에 저장된 URL들 중 본문이 수집되지 않은 페이지들을 방문하여 본문을 일괄 수집합니다.
+
+    Args:
+        db_path: 데이터베이스 파일 경로
+    Returns:
+        수집 결과 메시지
+    """
+    return await populate_page_contents(db_path)
 
 
 if __name__ == "__main__":

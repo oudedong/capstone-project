@@ -69,6 +69,14 @@ def init_db(path: str) -> str:
                 due_date TEXT,
                 FOREIGN KEY (url) REFERENCES page_urls (url) ON UPDATE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS page_contents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url_id INTEGER,
+                content TEXT,
+                is_processed BOOLEAN NOT NULL DEFAULT 0,
+                FOREIGN KEY (url_id) REFERENCES page_urls (id) ON DELETE CASCADE
+            );
         ''')
         conn.commit()
         return "데이터베이스 초기화 성공"
@@ -80,8 +88,8 @@ def init_db(path: str) -> str:
 
 # ── 삽입 ──────────────────────────────────────────────────────────────────────
 
-def _insert(path: str, table: str, columns: list[str], values: list) -> str:
-    """데이터베이스에 행을 삽입하는 내부 함수입니다."""
+def _insert(path: str, table: str, columns: list[str], values: list) -> int:
+    """데이터베이스에 행을 삽입하고 삽입된 행의 ID를 반환하는 내부 함수입니다."""
     conn = sqlite3.connect(path)
     cursor = conn.cursor()
     col_names = ', '.join(columns)
@@ -89,24 +97,33 @@ def _insert(path: str, table: str, columns: list[str], values: list) -> str:
     sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
     try:
         cursor.execute(sql, values)
+        row_id = cursor.lastrowid
         conn.commit()
-        return f"{table} 테이블에 데이터 저장 완료"
+        return row_id
     except Exception as e:
-        return f"삽입 중 에러 발생: {e}"
+        print(f"삽입 중 에러 발생: {e}")
+        return -1
     finally:
         conn.close()
 
 def insert_origin_url(path: str, url: str, summary: str) -> str:
     """원본 출처 URL과 요약 정보를 추가합니다."""
-    return _insert(path, 'origin_urls', ['url', 'summary'], [url, summary])
+    res = _insert(path, 'origin_urls', ['url', 'summary'], [url, summary])
+    return "origin_urls 테이블에 데이터 저장 완료" if res != -1 else "데이터 저장 실패"
 
-def insert_page_url(path: str, url: str, title: str) -> str:
-    """개별 일정 안내 페이지 URL과 제목을 저장합니다."""
+def insert_page_url(path: str, url: str, title: str) -> int:
+    """개별 일정 안내 페이지 URL과 제목을 저장하고 ID를 반환합니다."""
     return _insert(path, 'page_urls', ['url', 'title'], [url, title])
 
 def insert_todo(path: str, url: str, content: str, due_date: str) -> str:
     """할 일(일정) 정보를 추가합니다."""
-    return _insert(path, 'todo_list', ['url', 'content', 'due_date'], [url, content, due_date])
+    res = _insert(path, 'todo_list', ['url', 'content', 'due_date'], [url, content, due_date])
+    return "todo_list 테이블에 데이터 저장 완료" if res != -1 else "데이터 저장 실패"
+
+def insert_page_content(path: str, url_id: int, content: str) -> str:
+    """페이지의 본문 내용을 저장합니다."""
+    res = _insert(path, 'page_contents', ['url_id', 'content'], [url_id, content])
+    return "page_contents 테이블에 데이터 저장 완료" if res != -1 else "데이터 저장 실패"
 
 
 # ── 조회 ──────────────────────────────────────────────────────────────────────
@@ -163,6 +180,10 @@ def get_todo_list_overdue(path: str) -> str:
     """기한이 지난 할 일 목록을 JSON으로 반환합니다."""
     return _get_json(path, 'todo_list', lambda: "WHERE due_date < datetime('now', 'localtime')")
 
+def get_unprocessed_page_contents(path: str) -> str:
+    """처리되지 않은 페이지 본문 목록을 반환합니다."""
+    return _get_json(path, 'page_contents', lambda: "WHERE is_processed=0 ")
+
 
 # ── 업데이트 ──────────────────────────────────────────────────────────────────
 
@@ -193,6 +214,18 @@ def check_done_todo_list(path: str, ids: list[int]) -> str:
     rets = []
     for row_id in ids:
         res_json = _update_json(path, 'todo_list', 'is_completed', 1,
+                                lambda rid=row_id: f'WHERE id={rid} ')
+        try:
+            rets.append(json.loads(res_json))
+        except Exception:
+            rets.append(res_json)
+    return json.dumps(rets, ensure_ascii=False)
+
+def mark_page_content_processed(path: str, ids: list[int]) -> str:
+    """지정한 ID들의 페이지 본문을 처리 완료 상태로 변경합니다."""
+    rets = []
+    for row_id in ids:
+        res_json = _update_json(path, 'page_contents', 'is_processed', 1,
                                 lambda rid=row_id: f'WHERE id={rid} ')
         try:
             rets.append(json.loads(res_json))
@@ -244,5 +277,5 @@ class Global_visit_db_page_url:
     def __contains__(self, url:str) -> bool:
         ret = _get(self.path, 'page_urls', lambda : f"WHERE url='{url}' ")
         return len(ret) > 0
-    def add(self, data:dict) -> str:
+    def add(self, data:dict) -> int:
         return insert_page_url(self.path, data['url'], data['title'])

@@ -1,25 +1,43 @@
 import asyncio
-import os
 import time
 from pathlib import Path
-
+from functools import wraps
 from playwright.async_api import async_playwright
+ #수정필요....
 
-
-SESSION_FILE = Path("/home/oudedong/capstone-agent/.gemini/session.json") #수정필요....
-
-
-async def get_shared_context(headless: bool = True):
+async def get_shared_context(headless: bool, session_path: str = None):
     """Playwright context와 browser 인스턴스를 반환합니다."""
     playwright = await async_playwright().start()
     browser = await playwright.chromium.launch(headless=headless)
-    storage_state = str(SESSION_FILE) if SESSION_FILE.exists() else None
 
     context = await browser.new_context(
-        storage_state=storage_state,
+        storage_state=session_path,
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
     )
-    return context, browser
+    return context, browser, playwright
+
+
+class Playwright_mn:
+    def __init__(self, playwright, browser, context):
+        self.playwright = playwright
+        self.browser = browser
+        self.context = context
+    @classmethod
+    async def create(cls, session_path, headless:bool = True):
+        context,browser,playwright = await get_shared_context(headless, session_path)
+        return cls(playwright, browser, context)
+    async def new_page(self):
+        return await self.context.new_page()
+    async def storage_state(self):
+        return self.context.storage_state(path=self.session_path)
+    async def close(self):
+        if self.context:
+            await self.context.close()
+        if self.browser:
+            await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
+
 
 
 async def wait_dom_stable(page, timeout: int = 5000, stable_ms: int = 500):

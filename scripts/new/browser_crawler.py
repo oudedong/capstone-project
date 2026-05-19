@@ -3,37 +3,50 @@ import sys
 from collections import deque
 from typing import Callable
 
-from browser_session import get_shared_context, wait_dom_stable, is_interactable, SESSION_FILE
+from browser_session import Playwright_mn, get_shared_context, wait_dom_stable, is_interactable
 from html_cleaner import recursive_iframe_replace, clean_html
 
-from my_db import Global_visit_db_page_url, insert_page_content, _get
+from abc import ABC, abstractmethod
+
+# from my_db import Global_visit_db_page_url, insert_page_content, _get # 의존관계 끊어야됨
 
 # ── 페이지 가져오기 ────────────────────────────────────────────────────────────
 
-async def request_to_user(request_url: str) -> str:
+async def request_to_user(session_path: str, request_url: str) -> str:
     """
     처리하기 힘든 URL(로그인 페이지 등)에 대해 사용자가 직접 브라우저에서 처리하도록 열어줍니다.
     처리 결과를 세션에 저장합니다.
     """
-    context, browser = await get_shared_context(headless=False)
+    context = await Playwright_mn.create(session_path, False)
+    # context, browser, playwright = await get_shared_context(headless=False)
     page = await context.new_page()
     await page.goto(request_url)
 
     try:
-        await page.wait_for_event("close")
+        await page.wait_for_event("close", timeout=300000)
         await context.storage_state(path=SESSION_FILE)
         return "세션 저장 완료"
     except Exception as e:
-        return f"시간 초과 또는 오류 발생: {e}"
+        print(f"시간 초과 또는 오류 발생: {e}")
+        raise
     finally:
-        await browser.close()
+        await context.close()
+
+class RedirectError(Exception):
+    def __init__(self, intended_url, current_url, current_page_title):
+        self.intended_url = intended_url
+        self.current_url = current_url
+        self.current_page_title = current_page_title
+    def __str__(self):
+        return f"의도한 페이지로 이동되지 않았습니다. 의도한 페이지:{self.intended_url}, 현재 페이지제목:{self.current_page_title}, 현재url:{self.current_url}"
 
 
-async def _fetch_page(url: str,
+async def _fetch_page(session_path: str, url: str,
                       content_extractor: Callable,
-                      post_process: Callable[[str], str]) -> str:
+                      post_process: Callable[[str], str]) -> dict:
     """웹페이지를 열고 내용을 추출한 뒤 후처리하여 JSON으로 반환합니다."""
-    context, browser = await get_shared_context()
+    context = await Playwright_mn.create(session_path, True)
+    # context, browser, playwright = await get_shared_context()
     page = await context.new_page()
     response = None
 
@@ -51,21 +64,23 @@ async def _fetch_page(url: str,
             "intended_url": url,
             "is_intended_url": url == page.url,
         }
-        return json.dumps(result, ensure_ascii=False)
+        if not result['is_intended_url']:
+            # 의도한 페이지로 안 가졌을시 예외발생..(로그인 리다이렉션 등등...)
+            raise RedirectError(result['intended_url'], result['current_url'], result['current_page_title'])
+        return result
 
     except Exception as e:
         status_code = response.status if response else "Unknown"
         return f"페이지 로드 실패, status:{status_code}, 에러내용: {str(e)}"
     finally:
-        await browser.close()
+        await context.close()
 
-
-async def get_page(url: str) -> str:
+async def get_page(session_path: str, url: str) -> str:
     """URL 페이지를 가져와 HTML을 후처리하고 JSON으로 반환합니다."""
     async def _content_extractor(frame):
         return await recursive_iframe_replace(frame)
 
-    return await _fetch_page(url, _content_extractor, clean_html)
+    return await _fetch_page(session_path, url, _content_extractor, clean_html)
 
 
 # ── URL 수집 (클릭 탐색) ───────────────────────────────────────────────────────
@@ -198,12 +213,13 @@ async def _recursive_dynamic_click(
     return rets
 
 
-async def get_sub_urls_by_click(url: str, visited, depth: int = 1) -> list[dict]:
+async def get_sub_urls_by_click(session_path:str, url: str, visited, depth: int = 1) -> list[dict]:
     """
     페이지에서 클릭 가능한 요소들을 탐색하여 이동되는 URL들을 수집합니다.
     iframe 내부도 탐색하며, depth만큼 재귀적으로 수집합니다.
     """
-    context, browser = await get_shared_context(headless=False)
+    context = await Playwright_mn.create(session_path, False)
+    # context, browser, playwright = await get_shared_context(headless=False)
     page = await context.new_page()
 
     queue = deque([(url, 0)])
@@ -231,77 +247,30 @@ async def get_sub_urls_by_click(url: str, visited, depth: int = 1) -> list[dict]
                     print(f"url:{cur_url}, e:{str(e)}", file=sys.stderr)
                     continue
     finally:
-        await browser.close()
+        await context.close()
 
     return rets
 
-
-async def populate_page_contents(db_path: str) -> str:
-    """
-    DB에 저장된 page_urls 중 본문(page_contents)이 없는 페이지들을 방문하여
-    본문을 추출하고 저장합니다.
-    """
-    from my_db import _get, insert_page_content
-    
-    # 본문이 없는 URL들 조회
-    query = """
-    SELECT id, url FROM page_urls 
-    WHERE id NOT IN (SELECT url_id FROM page_contents)
-    """
-    # _get은 단순 테이블 조회용이므로 직접 쿼리를 위해 sqlite3 사용
-    import sqlite3
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute(query)
-    targets = cursor.fetchall()
-    conn.close()
-
-    if not targets:
-        return "수집할 새로운 본문이 없습니다."
-
-    context, browser = await get_shared_context()
-    page = await context.new_page()
-
-    count = 0
-    try:
-        for url_id, url in targets:
-            try:
-                print(f"[*] 본문 수집 중 ({count+1}/{len(targets)}): {url}", file=sys.stderr)
-                # await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                # await page.wait_for_load_state("networkidle", timeout=5000)
-                await wait_dom_stable()
-                
-                raw_content = await recursive_iframe_replace(page.main_frame)
-                cleaned_content = clean_html(raw_content)
-                insert_page_content(db_path, url_id, cleaned_content)
-                count += 1
-            except Exception as e:
-                print(f"[!] {url} 수집 실패: {e}", file=sys.stderr)
-                continue
-    finally:
-        await browser.close()
-
-    return f"총 {count}개의 페이지 본문 수집 완료"
-
-async def get_sub_urls_by_click_db(url: str, db_path:str , depth: int = 1) -> list[dict]:
-    """
-    방문처리를 db를 이용하는 get_sub_urls_by_click
-    """
-    return await get_sub_urls_by_click(url, Global_visit_db_page_url(db_path), depth)
-
-class Global_visit_set_page_url:
+class Global_visit_page_url(ABC):
+    """방문집합 형식"""
+    @abstractmethod
+    def __contains__(self, url:str) -> bool:
+        """집합에 대해 in연산"""
+        pass
+    def add(self, data:dict) -> str:
+        """집합 추가 연산"""
+        pass
+class Global_visit_set_page_url(Global_visit_page_url):
     """set을 이용한 방문집합, 디버깅용"""
     def __init__(self):
         self.set = set()
-    # db에서 in연산
     def __contains__(self, url:str) -> bool:
         return url in self.set
     def add(self, data:dict) -> str:
         self.set.add(data['url'])
 
-async def get_sub_urls_by_click_set(url: str, depth: int = 1) -> list[dict]:
+async def get_sub_urls_by_click_set(session_path:str, url: str, depth: int = 1) -> list[dict]:
     """
-    방문처리를 db를 이용하는 get_sub_urls_by_click
+    방문처리를 set를 이용하는 get_sub_urls_by_click
     """
-    return await get_sub_urls_by_click(url, Global_visit_set_page_url(), depth)
-
+    return await get_sub_urls_by_click(session_path, url, Global_visit_set_page_url(), depth)

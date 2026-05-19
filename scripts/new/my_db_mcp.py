@@ -1,15 +1,18 @@
 from mcp.server.fastmcp import FastMCP
-from my_db import (
-    init_db,
-    insert_origin_url, insert_page_url, insert_todo, insert_page_content,
-    get_origin_urls, get_page_urls,
-    get_todo_list_all, get_todo_list_done, get_todo_list_overdue, get_unprocessed_page_contents,
-    check_done_todo_list, mark_page_content_processed,
-    delete_done_todo_list, delete_overdue_todo_list, delete_done_page_urls,
-)
+from my_db import *
+from functools import wraps
+import json
 
 mcp = FastMCP("DB_tools")
 
+
+# JSON 변환 데코레이터
+def to_json(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    return wrapper
 
 # ── 초기화 ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +32,7 @@ def init_db_tool(path: str) -> str:
 # ── 삽입 ──────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
+@to_json
 def insert_db_source_urls(path: str, url: str, summary: str) -> str:
     """
     일정 관리의 근거가 되는 원본 출처 URL과 요약 정보를 추가합니다.
@@ -41,6 +45,7 @@ def insert_db_source_urls(path: str, url: str, summary: str) -> str:
     return insert_origin_url(path, url, summary)
 
 @mcp.tool()
+@to_json
 def insert_db_page_urls(path: str, url: str, title: str) -> str:
     """
     수집된 개별 일정 안내 페이지의 URL을 저장합니다.
@@ -53,6 +58,7 @@ def insert_db_page_urls(path: str, url: str, title: str) -> str:
     return insert_page_url(path, url, title)
 
 @mcp.tool()
+@to_json
 def insert_db_todo_list(path: str, url: str, content: str, due_date: str) -> str:
     """
     구체적인 할 일(일정) 정보를 추가합니다.
@@ -66,6 +72,7 @@ def insert_db_todo_list(path: str, url: str, content: str, due_date: str) -> str
     return insert_todo(path, url, content, due_date)
 
 @mcp.tool()
+@to_json
 def insert_db_page_content(path: str, url_id: int, content: str) -> str:
     """
     수집된 페이지의 본문 내용을 저장합니다.
@@ -81,6 +88,7 @@ def insert_db_page_content(path: str, url_id: int, content: str) -> str:
 # ── 조회 ──────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
+@to_json
 def get_db_origin_urls(path: str) -> str:
     """
     요약된 메인 웹사이트나 정보의 근거가 되는 URL 목록을 가져옵니다.
@@ -91,33 +99,38 @@ def get_db_origin_urls(path: str) -> str:
     return get_origin_urls(path)
 
 @mcp.tool()
-def get_db_page_urls(path: str, date: str = None) -> str:
+@to_json
+def get_db_page_urls(path: str, refresh=2) -> str:
     """
     확인이 필요한(또는 특정 날짜 이전에 확인한) 페이지 URL 목록을 가져옵니다.
     가져온 행들의 마지막 확인 시간(last_check)은 자동으로 현재 시간으로 갱신됩니다.
 
     Args:
         path: 데이터베이스 파일 경로
-        date: 기준 날짜 (기본값: 현재 시간). 이 날짜보다 이전에 확인한 페이지만 조회합니다.
+        refresh=2: 마지막 확인일 ex) 2이면 갱신일이 2일전 이상인 목록.
     """
-    return get_page_urls(path, date)
+    return get_page_urls(path, refresh)
 
 @mcp.tool()
+@to_json
 def get_db_todo_list_all(path: str) -> str:
     """전체 할 일 목록(todo_list)을 조회하여 JSON 형식으로 반환합니다."""
     return get_todo_list_all(path)
 
 @mcp.tool()
+@to_json
 def get_db_todo_list_done(path: str) -> str:
     """완료된 일정들을 조회하여 JSON 형식으로 반환합니다."""
     return get_todo_list_done(path)
 
 @mcp.tool()
+@to_json
 def get_db_todo_list_overdue(path: str) -> str:
     """기한이 지난 일정들을 조회하여 JSON 형식으로 반환합니다."""
     return get_todo_list_overdue(path)
 
 @mcp.tool()
+@to_json
 def get_db_unprocessed_page_contents(path: str) -> str:
     """처리되지 않은 페이지 본문 목록을 조회하여 JSON 형식으로 반환합니다."""
     return get_unprocessed_page_contents(path)
@@ -126,6 +139,7 @@ def get_db_unprocessed_page_contents(path: str) -> str:
 # ── 업데이트 ──────────────────────────────────────────────────────────────────
 
 @mcp.tool()
+@to_json
 def check_done_todo_list_tool(path: str, ids: list[int]) -> str:
     """
     요청한 ID들에 해당하는 일정들을 완료(is_completed=1) 상태로 변경합니다.
@@ -137,6 +151,7 @@ def check_done_todo_list_tool(path: str, ids: list[int]) -> str:
     return check_done_todo_list(path, ids)
 
 @mcp.tool()
+@to_json
 def mark_db_page_content_processed(path: str, ids: list[int]) -> str:
     """
     요청한 ID들에 해당하는 페이지 본문들을 처리 완료(is_processed=1) 상태로 변경합니다.
@@ -151,11 +166,13 @@ def mark_db_page_content_processed(path: str, ids: list[int]) -> str:
 # ── 삭제 ──────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
+@to_json
 def delete_done_todo_list_tool(path: str) -> str:
     """이미 완료(is_completed=1)된 일정들을 데이터베이스에서 삭제합니다."""
     return delete_done_todo_list(path)
 
 @mcp.tool()
+@to_json
 def delete_overdue_todo_list_tool(path: str, only_completed: bool = True) -> str:
     """
     기한이 지난 일정들을 삭제합니다.
@@ -168,6 +185,7 @@ def delete_overdue_todo_list_tool(path: str, only_completed: bool = True) -> str
     return delete_overdue_todo_list(path, only_completed)
 
 @mcp.tool()
+@to_json
 def delete_done_page_urls_tool(path: str) -> str:
     """연결된 할 일(todo_list)이 하나도 없는 페이지 URL들을 정리(삭제)합니다."""
     return delete_done_page_urls(path)

@@ -83,14 +83,20 @@ def init_db(path: str) -> str:
             
             CREATE TABLE IF NOT EXISTS redirected_origin_urls (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                origin_url TEXT NOT NULL,
-                redirected_url TEXT NOT NULL,
+                origin_url TEXT NOT NULL UNIQUE,
+                redirected_url TEXT NOT NULL UNIQUE,
+                FOREIGN KEY (origin_url) REFERENCES origin_urls (url) ON DELETE CASCADE
+            );
+                             
+            CREATE TABLE IF NOT EXISTS redirected_urls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                redirected_url TEXT NOT NULL UNIQUE,
                 login_url TEXT,
                 css_path_id TEXT,
                 css_path_pw TEXT,
                 login_id TEXT,
                 login_pw TEXT,
-                FOREIGN KEY (origin_url) REFERENCES origin_urls (url) ON DELETE CASCADE
+                FOREIGN KEY (redirected_url) REFERENCES redirected_origin_urls (redirected_url) ON DELETE CASCADE
             );
         ''')
         conn.commit()
@@ -121,8 +127,12 @@ def _db_execute_insert(path: str, table: str, columns: list[str], values:list) -
     return ret
 
 def insert_redirected_origin_urls(path:str, origin_url: str, redirected_url:str):
-    """로그인이 필요한 url을 저장합니다."""
+    """url에 대해서 리다이렉트 되는 url를 저장합니다."""
     return _db_execute_insert(path, 'redirected_origin_urls', ['origin_url','redirected_url'], [origin_url,redirected_url])
+
+def insert_redirected_urls(path:str, redirected_url:str):
+    """리다이렉트 되는 url의 세부정보(로그인 페이지,로그인 정보)를 저장합니다."""
+    return _db_execute_insert(path, 'redirected_urls', ['redirected_url'], [redirected_url])
 
 def insert_origin_url(path: str, url: str, summary: str, is_redirect: bool):
     """원천 페이지 URL과 페이지에 대한 간략한 설명을 저장하고 삽입내용을 반환합니다."""

@@ -1,5 +1,5 @@
 from my_scrapper import get_page, get_sub_urls_by_click, Global_visit_page_url, RedirectError, request_to_user
-from ..db import insert_origin_url, insert_redirected_origin_urls
+from ..db import insert_origin_url, insert_redirected_origin_urls, insert_redirected_urls
 from ..db import _db_execute_get
 from ..db import get_page_urls_to_check, insert_page_url, insert_page_content, check_page_urls
 from ..db import get_unprocessed_page_contents, insert_todo, mark_page_content_processed
@@ -16,6 +16,8 @@ class Global_visit_DB_page_url(Global_visit_page_url):
         return len(ret) > 0
     def add(self, data:dict):
         return insert_page_url(self.path, data['url'], data['title'])
+
+async def handle_redirection(): pass
 
 async def get_sub_urls_by_click_db(session_path: str, url: str, db_path, depth: int = 1) -> list[dict]:
     """
@@ -111,5 +113,6 @@ async def insert_origin_url_check_redirection(db_path:str , url:str, summary:str
     print('check_redirect결과:', redirected_url)
     if redirected_url:
         insert_redirected_origin_urls(db_path, url, redirected_url)
+        insert_redirected_urls(db_path, redirected_url)
         is_redirected = True
     return insert_origin_url(db_path, url, summary, is_redirected)

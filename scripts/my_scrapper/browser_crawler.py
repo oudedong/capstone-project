@@ -1,14 +1,11 @@
-import json
 import sys
 from collections import deque
 from typing import Callable
 
-from browser_session import Playwright_mn, get_shared_context, wait_dom_stable, is_interactable
-from html_cleaner import recursive_iframe_replace, clean_html
+from .browser_session import Playwright_mn, wait_dom_stable, is_interactable
+from .html_cleaner import recursive_iframe_replace, clean_html
 
 from abc import ABC, abstractmethod
-
-# from my_db import Global_visit_db_page_url, insert_page_content, _get # 의존관계 끊어야됨
 
 # ── 페이지 가져오기 ────────────────────────────────────────────────────────────
 

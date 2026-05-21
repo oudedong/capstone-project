@@ -1,6 +1,6 @@
 from mcp.server.fastmcp import FastMCP
-from browser_crawler import request_to_user, get_page, get_sub_urls_by_click_set
-from crawl_to_db import *
+from my_scrapper import request_to_user, get_page, get_sub_urls_by_click_set
+from schedule_db.crawl import *
 from functools import wraps
 import json
 

@@ -1,9 +1,6 @@
 import asyncio
 import time
-from pathlib import Path
-from functools import wraps
 from playwright.async_api import async_playwright
- #수정필요....
 
 async def get_shared_context(headless: bool, session_path: str = None):
     """Playwright context와 browser 인스턴스를 반환합니다."""

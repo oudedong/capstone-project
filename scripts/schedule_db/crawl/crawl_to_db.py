@@ -1,19 +1,17 @@
-from browser_crawler import get_page, get_sub_urls_by_click, Global_visit_page_url, RedirectError, request_to_user
-from my_db import _get
-from my_db import get_page_urls_to_check, insert_page_url, insert_page_content, check_page_urls
-from my_db import get_unprocessed_page_contents, insert_todo, mark_page_content_processed
-from my_db import _db_execute
+from my_scrapper import get_page, get_sub_urls_by_click, Global_visit_page_url, RedirectError, request_to_user
+from ..db import _db_execute_get
+from ..db import get_page_urls_to_check, insert_page_url, insert_page_content, check_page_urls
+from ..db import get_unprocessed_page_contents, insert_todo, mark_page_content_processed
 import json
 import subprocess
-
-__all__ = ['get_sub_urls_by_click_db', 'collect_page_contents', 'make_todo_list_from_page_contents','gemini_extractor']
 
 class Global_visit_DB_page_url(Global_visit_page_url):
     """db를 이용한 방문집합"""
     def __init__(self, path:str):
         self.path = path
     def __contains__(self, url:str) -> bool:
-        ret = _db_execute(self.path, 'page_urls', _get, lambda : f"WHERE url='{url}' ")
+        ret = _db_execute_get(self.path, 'page_urls', lambda : f"WHERE url='{url}' ")
+        # ret = _db_execute(self.path, 'page_urls', _get, lambda : f"WHERE url='{url}' ")
         return len(ret) > 0
     def add(self, data:dict):
         return insert_page_url(self.path, data['url'], data['title'])
@@ -40,7 +38,7 @@ async def collect_page_contents(session_path: str, db_path: str) -> list[dict]:
                 check_page_urls(db_path, [url['id']])
             except RedirectError as e:
                 # 리다이렉션 됬을때
-                await request_to_user(session_path, url) # 바꿀 수 있게하기
+                await request_to_user(session_path, url) # 바꿀 수 있게하기, 사용자에게 요청말고, 환경변수를 이용한 처리?
         except Exception as e:
             fails += [{"url":url['url'], "e":str(e)}]
     return fails

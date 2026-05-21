@@ -1,5 +1,5 @@
 from mcp.server.fastmcp import FastMCP
-from my_db import *
+from schedule_db.db import *
 from functools import wraps
 import json
 

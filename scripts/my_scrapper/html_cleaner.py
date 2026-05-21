@@ -1,6 +1,5 @@
 import re
 from typing import Callable
-
 from bs4 import BeautifulSoup, Comment
 
 

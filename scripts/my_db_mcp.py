@@ -1,5 +1,6 @@
 from mcp.server.fastmcp import FastMCP
 from schedule_db.db import *
+from schedule_db.crawl import insert_origin_url_check_redirection
 from functools import wraps
 import json
 
@@ -33,7 +34,7 @@ def init_db_tool(path: str) -> str:
 
 @mcp.tool()
 @to_json
-def insert_db_source_urls(path: str, url: str, summary: str) -> str:
+async def insert_db_source_urls(path: str, url: str, summary: str) -> str:
     """
     일정 관리의 근거가 되는 원본 출처 URL과 요약 정보를 추가합니다.
 
@@ -41,8 +42,9 @@ def insert_db_source_urls(path: str, url: str, summary: str) -> str:
         path: 데이터베이스 파일 경로
         url: 출처 웹사이트 URL
         summary: 해당 URL 콘텐츠에 대한 요약 설명
+    Return: 삽입결과
     """
-    return insert_origin_url(path, url, summary)
+    return await insert_origin_url_check_redirection(path, url, summary)
 
 @mcp.tool()
 @to_json

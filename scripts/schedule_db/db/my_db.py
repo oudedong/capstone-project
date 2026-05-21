@@ -53,7 +53,8 @@ def init_db(path: str) -> str:
             CREATE TABLE IF NOT EXISTS origin_urls (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 url TEXT UNIQUE,
-                summary TEXT
+                summary TEXT,
+                is_redirect BOOLEAN NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS page_urls (
@@ -79,7 +80,19 @@ def init_db(path: str) -> str:
                 is_processed BOOLEAN NOT NULL DEFAULT 0,
                 FOREIGN KEY (url) REFERENCES page_urls (url) ON DELETE CASCADE
             );
-        ''')#url_id수정필요...
+            
+            CREATE TABLE IF NOT EXISTS redirected_origin_urls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                origin_url TEXT NOT NULL,
+                redirected_url TEXT NOT NULL,
+                login_url TEXT,
+                css_path_id TEXT,
+                css_path_pw TEXT,
+                login_id TEXT,
+                login_pw TEXT,
+                FOREIGN KEY (origin_url) REFERENCES origin_urls (url) ON DELETE CASCADE
+            );
+        ''')
         conn.commit()
         return "데이터베이스 초기화 성공"
     except Exception as e:
@@ -107,9 +120,13 @@ def _db_execute_insert(path: str, table: str, columns: list[str], values:list) -
     ret = _db_execute(path, table, convert)
     return ret
 
-def insert_origin_url(path: str, url: str, summary: str):
+def insert_redirected_origin_urls(path:str, origin_url: str, redirected_url:str):
+    """로그인이 필요한 url을 저장합니다."""
+    return _db_execute_insert(path, 'redirected_origin_urls', ['origin_url','redirected_url'], [origin_url,redirected_url])
+
+def insert_origin_url(path: str, url: str, summary: str, is_redirect: bool):
     """원천 페이지 URL과 페이지에 대한 간략한 설명을 저장하고 삽입내용을 반환합니다."""
-    return _db_execute_insert(path, 'origin_urls', ['url', 'summary'], [url, summary])
+    return _db_execute_insert(path, 'origin_urls', ['url', 'summary', 'is_redirect'], [url, summary, is_redirect])
 
 def insert_page_url(path: str, url: str, title: str):
     """개별 일정 안내 페이지 URL과 제목을 저장하고 ID를 반환합니다."""
@@ -147,6 +164,10 @@ def _db_execute_get(path: str, table: str,
 def get_origin_urls(path: str):
     """출처 URL 목록을 JSON으로 반환합니다."""
     return _db_execute_get(path, 'origin_urls')
+
+def get_redirected_origin_urls(path: str, url:str):
+    '''url에 해당하는 redirect정보를 줍니다'''
+    return _db_execute_get(path, 'redirected_origin_urls', lambda : f"WHERE origin_url={url} ")
 
 def get_page_urls(path: str):
     """페이지 URL 목록을 JSON으로 반환합니다."""

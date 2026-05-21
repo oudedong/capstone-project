@@ -1,4 +1,5 @@
 from my_scrapper import get_page, get_sub_urls_by_click, Global_visit_page_url, RedirectError, request_to_user
+from ..db import insert_origin_url, insert_redirected_origin_urls
 from ..db import _db_execute_get
 from ..db import get_page_urls_to_check, insert_page_url, insert_page_content, check_page_urls
 from ..db import get_unprocessed_page_contents, insert_todo, mark_page_content_processed
@@ -27,18 +28,23 @@ async def collect_page_contents(session_path: str, db_path: str) -> list[dict]:
     DB에 저장된 page_urls 중 확인이 필요한 페이지들을 얻은 후 방문하여 본문을 추출 저장합니다.
     결과로 실패한 것들을 반환함
     """
+    async def get_insert_check(url:dict):
+        #페이지 가져오고, 가져온거를 db에 저장, 읽은 시간 갱신
+        result = await get_page(session_path, url['url'])
+        insert_page_content(db_path, url['url'], result['content'])
+        check_page_urls(db_path, [url['id']])
     fails = []
     urls_to_check = get_page_urls_to_check(db_path, 0)
     print("방문이 필요한 페이지들: ", urls_to_check)
     for url in urls_to_check:
         try:
             try:
-                result = await get_page(session_path, url['url'])
-                insert_page_content(db_path, url['url'], result['content'])
-                check_page_urls(db_path, [url['id']])
+                await get_insert_check(url)
             except RedirectError as e:
                 # 리다이렉션 됬을때
-                await request_to_user(session_path, url) # 바꿀 수 있게하기, 사용자에게 요청말고, 환경변수를 이용한 처리?
+                await request_to_user(session_path, url['url']) # 바꿀 수 있게하기, 사용자에게 요청말고, 환경변수를 이용한 처리?
+                # 처리 됬을시 다시
+                check_page_urls(url)
         except Exception as e:
             fails += [{"url":url['url'], "e":str(e)}]
     return fails
@@ -87,3 +93,23 @@ def gemini_extractor(content:str)->dict:
     final_output = final_output[start_index:end_index+1]
     print("결과:",final_output)
     return json.loads(final_output)
+
+async def check_redirect(url: str)->str:
+    """리다이렉션 여부를 검사함, 리다이렉션시 리다이렉션된 url을 반환함"""
+    try:
+        ret = await get_page(None, url)
+        print('check_redirect결과:',ret)
+    except RedirectError as re:
+        return re.current_url
+    except:
+        raise
+    return None
+async def insert_origin_url_check_redirection(db_path:str , url:str, summary:str):
+    '''리다이렉션 여부를 검사하며 넣습니다'''
+    is_redirected = False
+    redirected_url = await check_redirect(url)
+    print('check_redirect결과:', redirected_url)
+    if redirected_url:
+        insert_redirected_origin_urls(db_path, url, redirected_url)
+        is_redirected = True
+    return insert_origin_url(db_path, url, summary, is_redirected)

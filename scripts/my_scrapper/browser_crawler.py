@@ -21,7 +21,7 @@ async def request_to_user(session_path: str, request_url: str) -> str:
 
     try:
         await page.wait_for_event("close", timeout=300000)
-        await context.storage_state(path=SESSION_FILE)
+        await context.storage_state(path=session_path)
         return "세션 저장 완료"
     except Exception as e:
         print(f"시간 초과 또는 오류 발생: {e}")
@@ -65,7 +65,8 @@ async def _fetch_page(session_path: str, url: str,
             # 의도한 페이지로 안 가졌을시 예외발생..(로그인 리다이렉션 등등...)
             raise RedirectError(result['intended_url'], result['current_url'], result['current_page_title'])
         return result
-
+    except RedirectError as re:
+        raise
     except Exception as e:
         status_code = response.status if response else "Unknown"
         return f"페이지 로드 실패, status:{status_code}, 에러내용: {str(e)}"

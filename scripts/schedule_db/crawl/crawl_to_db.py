@@ -1,7 +1,8 @@
-from my_scrapper import get_page, get_sub_urls_by_click, Global_visit_page_url, RedirectError, request_to_user
-from ..db import insert_origin_url, insert_redirected_origin_urls, insert_redirected_urls
+from my_scrapper import get_page, get_sub_urls_by_click, Global_visit_page_url
+from my_scrapper import RedirectError, request_to_user, Redirected_page_urls, Redirection_db, Try_login_solver, Redirected_page_solver, Request_to_user_solver
+from ..db import insert_origin_url, insert_redirected_urls
 from ..db import _db_execute_get
-from ..db import get_page_urls_to_check, insert_page_url, insert_page_content, check_page_urls
+from ..db import get_page_urls_to_check, insert_page_url, insert_page_content, check_page_urls, get_redirected_urls
 from ..db import get_unprocessed_page_contents, insert_todo, mark_page_content_processed
 import json
 import subprocess
@@ -12,18 +13,32 @@ class Global_visit_DB_page_url(Global_visit_page_url):
         self.path = path
     def __contains__(self, url:str) -> bool:
         ret = _db_execute_get(self.path, 'page_urls', lambda : f"WHERE url='{url}' ")
-        # ret = _db_execute(self.path, 'page_urls', _get, lambda : f"WHERE url='{url}' ")
         return len(ret) > 0
     def add(self, data:dict):
         return insert_page_url(self.path, data['url'], data['title'])
+class Redirected_page_urls_DB(Redirected_page_urls):
+    """db를 이용한 리다이렉션 url집합"""
+    def __init__(self, db_path:str, solvers:list["Redirected_page_solver"]):
+        super().__init__(solvers)
+        self.db_path = db_path
+    def _add(self, data:dict):
+        insert_redirected_urls(self.db_path, data['url'])
+    def _contains(self, url:str):
+        return len(get_redirected_urls(self.db_path, url)) > 0
+class Redirection_login_db_DB(Redirection_db):
+    """db에 login_urls 테이블을 이용한 로그인 리다이렉션 관련정보 db"""
+    def __init__(self, db_path:str):
+        self.db_path = db_path
+    def __call__(self, redirected_url:str)->dict:
+        ret = _db_execute_get(self.path, 'login_urls', lambda : f"WHERE login_url='{redirected_url}' ")
+        return ret[0]
 
-async def handle_redirection(): pass
-
+# 전부 수정필요 #############################################################
 async def get_sub_urls_by_click_db(session_path: str, url: str, db_path, depth: int = 1) -> list[dict]:
     """
     방문처리를 db를 이용하는 get_sub_urls_by_click
     """
-    return await get_sub_urls_by_click(session_path, url, Global_visit_DB_page_url(db_path), depth)
+    return await get_sub_urls_by_click(session_path, url, Global_visit_DB_page_url(db_path), Redirected_page_urls_DB(), depth)
 
 async def collect_page_contents(session_path: str, db_path: str) -> list[dict]:
     """
@@ -102,17 +117,15 @@ async def check_redirect(url: str)->str:
         ret = await get_page(None, url)
         print('check_redirect결과:',ret)
     except RedirectError as re:
-        return re.current_url
+        return re.current_url # 현재 리다이렉션된 url을 반환함
     except:
         raise
     return None
 async def insert_origin_url_check_redirection(db_path:str , url:str, summary:str):
     '''리다이렉션 여부를 검사하며 넣습니다'''
-    is_redirected = False
     redirected_url = await check_redirect(url)
     print('check_redirect결과:', redirected_url)
     if redirected_url:
-        insert_redirected_origin_urls(db_path, url, redirected_url)
         insert_redirected_urls(db_path, redirected_url)
         is_redirected = True
-    return insert_origin_url(db_path, url, summary, is_redirected)
+    return insert_origin_url(db_path, url, summary)

@@ -7,6 +7,12 @@ async def get_shared_context(headless: bool, session_path: str = None):
     playwright = await async_playwright().start()
     browser = await playwright.chromium.launch(headless=headless)
 
+    # 세션 파일이 존재하나 확인
+    try:
+        with open(session_path, "rb") as f: pass
+    except FileNotFoundError as e:
+        session_path = None
+
     context = await browser.new_context(
         storage_state=session_path,
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
@@ -15,19 +21,40 @@ async def get_shared_context(headless: bool, session_path: str = None):
 
 
 class Playwright_mn:
-    def __init__(self, playwright, browser, context):
+    def __init__(self, playwright, browser, context, session_path:str):
         self.playwright = playwright
         self.browser = browser
         self.context = context
+        self.session_path = session_path
+        self.page = None
     @classmethod
     async def create(cls, session_path, headless:bool = True):
         context,browser,playwright = await get_shared_context(headless, session_path)
-        return cls(playwright, browser, context)
+        return cls(playwright, browser, context, session_path)
+    async def reload_state(self): # 세션 새로고침!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        if self.context:
+            await self.context.close()
+            self.page = None # page도 닫히므로 비워줌
+        self.context = await self.browser.new_context(
+            storage_state=self.session_path,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+        )
     async def new_page(self):
-        return await self.context.new_page()
+        if self.page:
+            # 있다면 제거
+            await self.page.close()
+        self.page = await self.context.new_page()
+        return self.page
+    async def get_page(self):
+        if not self.page:
+            # 없다면 생성
+            await self.new_page()
+        return self.page
     async def storage_state(self):
         return self.context.storage_state(path=self.session_path)
     async def close(self):
+        if self.page:
+            await self.page.close()
         if self.context:
             await self.context.close()
         if self.browser:

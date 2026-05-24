@@ -77,6 +77,7 @@ async def get_sub_urls_by_click_tool_set(session_path:str, url: str, depth: int 
     """
     페이지에서 클릭 가능한 요소들을 클릭해보며 이동되는 URL들을 수집합니다.
     페이지 내 iframe도 포함하여 탐색합니다.
+    DB내용은 탐색시 참조하지 않음
 
     Args:
         session_path: 세션정보가 저장된 파일의 path

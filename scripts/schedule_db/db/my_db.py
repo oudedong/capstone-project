@@ -1,8 +1,6 @@
 import sqlite3
 import datetime
 from typing import Callable
-
-# 파이썬에서 이름앞에 _ 붙이면 from .. import * 시 임포트 안됨!!!
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
 
 def _cursor_to_list_dict(cursor) -> list[dict]:
@@ -28,11 +26,10 @@ def _db_execute(path: str, table: str,
 
         conn = sqlite3.connect(path)
         cursor = conn.cursor()
-        action_db(cursor, table, filter_func)# 자원해제를 위해서 cursor을 제공해줌
-        result = _cursor_to_list_dict(cursor) #딕셔너리 형태로 변환
+        action_db(cursor, table, filter_func) # 자원해제를 위해서 cursor을 제공해줌
+        result = _cursor_to_list_dict(cursor) # 딕셔너리 형태로 변환
         additional(cursor, result)
         conn.commit()
-        # return json.dumps(result, ensure_ascii=False)
         return result
     except Exception as e:
         print(f"DB 작업 중 에러 발생: {e}")
@@ -48,12 +45,12 @@ def init_db(path: str) -> str:
     """일정 관리 데이터베이스를 초기화하고 필요한 테이블들을 생성합니다."""
     conn = sqlite3.connect(path)
     cursor = conn.cursor()
-    try: ############################# origin_urls에 is_redirected제거함..
+    try: # todo_list에 is_fresh 추가됨!(갱신상태인지)
         cursor.executescript('''
             CREATE TABLE IF NOT EXISTS origin_urls (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 url TEXT UNIQUE,
-                summary TEXT,
+                summary TEXT
             );
 
             CREATE TABLE IF NOT EXISTS page_urls (
@@ -69,21 +66,22 @@ def init_db(path: str) -> str:
                 content TEXT NOT NULL,
                 is_completed BOOLEAN NOT NULL DEFAULT 0,
                 due_date TEXT,
+                is_fresh BOOLEAN NOT NULL DEFAULT 1,
                 FOREIGN KEY (url) REFERENCES page_urls (url) ON UPDATE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS page_contents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT,
+                url TEXT UNIQUE,
                 content TEXT,
                 is_processed BOOLEAN NOT NULL DEFAULT 0,
                 FOREIGN KEY (url) REFERENCES page_urls (url) ON DELETE CASCADE
             );
                              
-            CREATE TABLE IF NOT EXISTS redirected_urls (
+            CREATE TABLE IF NOT EXISTS redirected_urls ( 
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                redirected_url TEXT NOT NULL UNIQUE,
-                login_url TEXT
+                redirected_url TEXT NOT NULL UNIQUE,  
+                target_url TEXT
             );
             
             CREATE TABLE IF NOT EXISTS login_urls (
@@ -92,8 +90,7 @@ def init_db(path: str) -> str:
                 css_path_id TEXT,
                 css_path_pw TEXT,
                 login_id TEXT,
-                login_pw TEXT,
-                FOREIGN KEY (login_url) REFERENCES redirected_urls (login_url) ON DELETE CASCADE
+                login_pw TEXT
             );
         ''')
         conn.commit()
@@ -124,7 +121,7 @@ def _db_execute_insert(path: str, table: str, columns: list[str], values:list) -
     return ret
 
 def insert_redirected_urls(path:str, redirected_url:str): ###################################
-    """리다이렉트 되는 url의 세부정보(로그인 페이지,로그인 정보)를 저장합니다."""
+    """리다이렉트 url을 저장합니다."""
     return _db_execute_insert(path, 'redirected_urls', ['redirected_url'], [redirected_url])
 
 def insert_origin_url(path: str, url: str, summary: str):
@@ -143,6 +140,26 @@ def insert_page_content(path: str, url: str, content: str):
     """페이지의 본문 내용을 저장합니다."""
     return _db_execute_insert(path, 'page_contents', ['url', 'content'], [url, content])
 
+
+def insert_login_urls(path:str, login_url:str, 
+                      css_path_id, css_path_pw, 
+                      login_id, login_pw): #아이디,비번 직접 안쓰게 개선필요...
+    """login_urls에 로그인 정보를 추가합니다"""
+    return _db_execute_insert(path, 'login_urls', 
+                              ['login_url', 'css_path_id', 'css_path_pw', 'login_id', 'login_pw'], 
+                              [login_url, css_path_id, css_path_pw, login_id, login_pw])
+
+# ── upsert ──────────────────────────────────────────────────────────────────────
+
+def upsert_page_content(path: str, url: str, content: str):
+    """페이지의 본문 내용을 저장 또는 업데이트 합니다."""
+    _filter = lambda: "WHERE url={url} "
+    if _db_execute_get(path, 'page_contents', _filter):
+        # 이미 있으면 삽입하지 말고 업데이트, is_processed도 초기화
+        _db_execute_update(path, 'page_contents', 'content', content, _filter)
+        return _db_execute_update(path, 'page_contents', 'is_processed', False, _filter) 
+
+    return insert_page_content(path, url, content)
 
 # ── 조회 ──────────────────────────────────────────────────────────────────────
 
@@ -181,31 +198,55 @@ def get_page_urls_to_check(path: str, refresh: int):
     def filter_func():
         ret = f"WHERE last_check IS NULL "
         if refresh > 0:
-            ret += f"OR last_check < '{date_refresh}' AND EXISTS (SELECT * FROM todo_list WHERE todo_list.url=page_urls.url AND todo_list.due_date <='{date_now}' AND todo_list.is_completed = 0)"
+            ret += f"OR (last_check < '{date_refresh}' AND EXISTS (SELECT * FROM todo_list WHERE todo_list.url=page_urls.url AND todo_list.due_date >= '{date_now}')) "
         return ret
 
     return _db_execute_get(path, 'page_urls', filter_func)
 
+_get_todo_list_base_filter = "WHERE is_fresh=1 AND due_data IS NOT NULL "
+
 def get_todo_list_all(path: str):
     """전체 할 일 목록을 JSON으로 반환합니다."""
-    return _db_execute_get(path, 'todo_list')
+    return _db_execute_get(path, 'todo_list', lambda:_get_todo_list_base_filter)
 
 def get_todo_list_done(path: str):
     """완료된 할 일 목록을 JSON으로 반환합니다."""
-    return _db_execute_get(path, 'todo_list', lambda: "WHERE is_completed=1 ")
+    return _db_execute_get(path, 'todo_list', lambda: f"{_get_todo_list_base_filter}AND is_completed=1 ")
 
 def get_todo_list_overdue(path: str):
-    """기한이 지난 할 일 목록을 JSON으로 반환합니다."""
-    return _db_execute_get(path, 'todo_list', lambda: "WHERE due_date < c")
+    """기한이 지나고 끝내지못한 할 일 목록을 JSON으로 반환합니다."""
+    return _db_execute_get(path, 'todo_list', lambda: f"{_get_todo_list_base_filter}AND due_date < c AND is_completed=0")
 
+def get_todo_list_diff(path:str): # mcp에 추가해주기!!
+    """페이지별로 갱신이전, 이후 todo_list를 반환합니다."""
+    todos = _db_execute_get(path, 'todo_list', lambda:"WHERE due_data IS NOT NULL ")
+    ret = {}
+    for todo in todos:
+        if ret.get(todo['url']) == None:
+            ret[todo['url']] = {'fresh': [], 'old': []}
+        to_append = None
+        if todo['is_fresh']:
+            to_append = ret[todo['url']]['fresh']
+        else:
+            to_append = ret[todo['url']]['old']
+        to_append.append({'content':todo['content'],'is_completed':todo['is_completed'], 'due_date':todo['due_date']})
+    return ret
+        
 def get_unprocessed_page_contents(path: str):
     """처리되지 않은 페이지 본문 목록을 반환합니다."""
     return _db_execute_get(path, 'page_contents', lambda: "WHERE is_processed=0 ")
 
-def get_redirected_urls(path:str, cur_url:str): ##########################################
-    """현재 url이 리다이렉션 url인지 확인합니다"""
-    return _db_execute_get(path, 'redirected_urls', lambda: f"WHERE redirected_url='{cur_url}'")
+def get_redirected_urls(path:str, cur_url:str):
+    """특정 리다이렉션 url에대해 target_url을 가져옵니다"""
+    return _db_execute_get(path, 'redirected_urls', lambda: f"WHERE redirected_url='{cur_url}' ")
 
+def get_unprocessed_redirected_urls(path:str):
+    """처리되지 않은 리다이렉션 url들을 가져옵니다"""
+    return _db_execute_get(path, 'redirected_urls', lambda: f"WHERE target_url=NULL ")
+
+def get_page_content(path:str, url:str):
+    """특정페이지의 content를 가져옵니다"""
+    return _db_execute_get(path, 'page_contents', lambda: f"WHERE url={url} ")
 
 
 # ── 업데이트 ──────────────────────────────────────────────────────────────────
@@ -239,7 +280,7 @@ def check_done_todo_list(path: str, ids: list[int]):
         rets += ret
     return rets
 
-def mark_page_content_processed(path: str, ids: list[int]) -> str:
+def mark_page_content_processed(path: str, ids: list[int]):
     """지정한 ID들의 페이지 본문을 처리 완료 상태로 변경합니다."""
     rets = []
     for row_id in ids:
@@ -248,7 +289,7 @@ def mark_page_content_processed(path: str, ids: list[int]) -> str:
         rets += ret
     return rets
 
-def check_page_urls(path: str, ids: list[int]) -> str:
+def check_page_urls(path: str, ids: list[int]):
     """지정한 ID들의 페이지 url들의 방문시간을 갱신합니다."""
     rets = []
     date = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -258,6 +299,17 @@ def check_page_urls(path: str, ids: list[int]) -> str:
         rets += ret
     return rets
 
+def add_target_url_to_redirected_urls(path: str, r_url:str, t_url:str):
+    """redirected_urls 테이블에 redirected_url에 대해, target_url을 업데이트 합니다"""
+    if len(get_redirected_urls(path, r_url)) < 1:
+        raise Exception(f"redirected_urls 테이블에 {r_url}이 없습니다, 먼저 추가해주세요")
+    ret = _db_execute_update(path, 'redirected_urls', 'target_url', t_url, lambda: f"WHERE redirected_url='{r_url}' ")
+    return ret
+
+def defresh_todo_list(path:str, url:str):
+    """url에 해당하는 todo_list들의 갱신상태를 오래됨으로 바꿉니다"""
+    ret = _db_execute_update(path, 'todo_list', 'is_fresh', 0, lambda: f"WHERE url='{url}' ")
+    return ret
 
 # ── 삭제 ──────────────────────────────────────────────────────────────────────
 
@@ -277,7 +329,7 @@ def delete_done_todo_list(path: str) -> str:
     """완료된 할 일들을 삭제합니다."""
     return _db_execute_delete(path, 'todo_list', lambda: "WHERE is_completed=1 ")
 
-def delete_overdue_todo_list(path: str, only_completed: bool = True) -> str:
+def delete_overdue_todo_list(path: str, only_completed: bool = True):
     """기한이 지난 할 일들을 삭제합니다."""
     def filter_func():
         w = "WHERE due_date < datetime('now', 'localtime') "
@@ -286,11 +338,5 @@ def delete_overdue_todo_list(path: str, only_completed: bool = True) -> str:
         return w
     return _db_execute_delete(path, 'todo_list', filter_func)
 
-def delete_done_page_urls(path: str) -> str:
-    """연결된 할 일이 없는 페이지 URL들을 삭제합니다."""
-    def filter_func():
-        return "WHERE NOT EXISTS (SELECT 1 FROM todo_list WHERE todo_list.url = page_urls.url) "
-    return _db_execute_delete(path, 'page_urls', filter_func)
-
-
-# 문제: _update, _insert에서 예외발생시 안닫힘.... 0
+def delete_old_todo_list(path:str):
+    return _db_execute_delete(path, 'todo_list', lambda: "WHERE is_fresh=0 ")

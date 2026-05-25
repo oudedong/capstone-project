@@ -26,11 +26,12 @@ class Redirection_db_temp(Redirection_db):
         }
     
 async def test():
-    r_db = Redirection_db_temp()
+    init_db(DB_PATH)
+    r_db = Redirection_login_db_DB(DB_PATH)
     solvers = [Try_login_solver(SESSION_FILE, r_db, False), Request_to_user_solver(SESSION_FILE, r_db)]
-    r_set = Redirected_page_urls_set(solvers)
-    r_set.add({"url":r_url})
-    ret = await get_sub_urls_by_click_set(SESSION_FILE, test_url2, r_set)
+    r_set = Redirected_page_urls_DB(DB_PATH, solvers)
+    # r_set.add({"redirected":r_url, "target_url: None"})
+    ret = await get_sub_urls_by_click_db(SESSION_FILE, test_url2, DB_PATH)
     print(ret)
 
 asyncio.run(test())

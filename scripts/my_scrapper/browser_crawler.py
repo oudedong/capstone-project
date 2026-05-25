@@ -274,17 +274,30 @@ async def get_sub_urls_by_click(session_path:str, url: str, visited, Redirected_
             await page.goto(cur_url, wait_until="domcontentloaded", timeout=0)
             await wait_dom_stable(page)
             # 만약 처음접속한 페이지가 리다이렉션 페이지이면
-            if Redirected_page_urls != None and  page.url in Redirected_page_urls:
-                ret = await Redirected_page_urls.try_solve(page.url)
-                # 해결실패시
-                if not ret:
-                    print(f"리다이렉션으로 인해 {cur_url}로 이동불가, 건너뜀")
+            if cur_url != page.url:
+                if Redirected_page_urls != None :
+                    # 리다이렉션 정보가 있을때
+                    if page.url in Redirected_page_urls:
+                        ret = await Redirected_page_urls.try_solve(page.url)
+                        # 해결실패시
+                        if not ret:
+                            # 건너뜀
+                            print(f"리다이렉션 해결실패 url:{cur_url}, 건너뜀")
+                            continue
+                        # 해결성공시: 페이지 갱신후 다시 접속함
+                        await nm.reload_state()
+                        page = await nm.get_page()
+                        await page.goto(cur_url, wait_until="domcontentloaded", timeout=0)
+                        await wait_dom_stable(page)
+                    # 없을때
+                    else:
+                        # 리다이렉션 정보를 db에 추가 후 건너뜀
+                        print(f"db에 정보가 없는 리다이렉션 발생 url:{cur_url}, db에 추가 후 건너뜀")
+                        Redirected_page_urls.add({'redirected_url':cur_url, 'target_url':None})
+                        continue
+                else:
+                    print(f"리다이렉션 발생 url:{cur_url}, 건너뜀")
                     continue
-                # 해결성공시: 페이지 갱신후 다시 접속함
-                await nm.reload_state()
-                page = await nm.get_page()
-                await page.goto(cur_url, wait_until="domcontentloaded", timeout=0)
-                await wait_dom_stable(page)
 
             for i in range(len(page.frames)):
                 try:
@@ -333,17 +346,27 @@ class Redirected_page_urls(Global_visit_page_url):
         self.solvers = solvers # 리다이렉션을 해결해볼 방법들
     async def try_solve(self, redirected_url:str) -> bool:
         # 리다이렉션 문제를 해결시도해봄
-        result = False
+        t_url = None
+        try:
+            t_url = self._get_target_url(redirected_url)
+        except Exception as e:
+            print(f't_url을 얻을 수 없음: url:{redirected_url}, e:{str(e)}')
+            return False
         for solver in self.solvers:
-            result = await solver(redirected_url)
-            if result: break
-        return result
-    def add(self, data:dict):
-        # 쿼리스트링 때줌
-        data['url'] = get_clean_url(data['url'])
-        self._add(data)
+            if await solver(t_url):
+                return True
+        return False
     @abstractmethod
-    def _add(self,  data:dict):
+    def _get_target_url(self, redirected_url):
+        # 리다이렉션을 처리하기위해 이동해야되는 페이지를 줌(로그인페이지 등등)
+        pass
+    def add(self, data:dict):
+        # 쿼리스트링 때줌, 아래 2가지 값이 있어야됨
+        r_url = get_clean_url(data['redirected_url']) # 리다이렉션된 url
+        t_url = data['target_url']                    # 처리를 할 url위치 
+        self._add(r_url, t_url)
+    @abstractmethod
+    def _add(self, r_url:str, t_url:str):
         # 실제 삽입부분
         pass
     def __contains__(self, url:str)->bool:
@@ -355,14 +378,17 @@ class Redirected_page_urls(Global_visit_page_url):
         # 실제 in연산 부분
         pass
 class Redirected_page_urls_set(Redirected_page_urls):
-    """파이썬 set를 활용하는 Redirected_page_urls"""
+    """파이썬 딕셔너리를 활용하는 Redirected_page_urls"""
     def __init__(self, solvers):
         super().__init__(solvers)
-        self.set = Global_visit_set_page_url()
+        self.r_db = {}
     def _contains(self, url:str)->bool:
-        return url in self.set
-    def _add(self, data:dict):
-        self.set.add(data)
+        ret = self.r_db.get(url)
+        return not(ret == None)
+    def _add(self, r_url:str, t_url:str):
+        self.r_db[r_url]=t_url
+    def _get_target_url(self, redirected_url):
+        return self.r_db[redirected_url]
 class Redirected_page_solver(ABC):
     """
     해결을 담당하는 클래스
@@ -412,6 +438,7 @@ class Try_login_solver(Redirected_page_solver):
         login_id: 로그인 id
         login_pw: 비밀번호
         """
+        ############## 나중에 별도클래스로 빼주기...
         login_url = data['login_url']
         css_path_id = data['css_path_id']
         css_path_pw = data['css_path_pw']

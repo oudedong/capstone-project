@@ -1,5 +1,6 @@
 from mcp.server.fastmcp import FastMCP
 from my_scrapper import request_to_user, get_page, get_sub_urls_by_click_set
+from my_scrapper import Redirected_page_urls, Try_login_solver
 from schedule_db.crawl import *
 from functools import wraps
 import json
@@ -18,7 +19,7 @@ def to_json(func):
 @to_json
 async def request_to_user_tool(session_path: str, request_url: str) -> str:
     """
-    처리하기 힘든 특정 URL(로그인 페이지 등)에 대해 사용자에게 처리를 요청합니다.
+    처리하기 힘든 특정 URL(로그인,캡챠 등)에 대해 사용자에게 처리를 요청합니다.
     사용자가 브라우저에서 직접 처리하면 결과를 세션에 저장합니다.
 
     Args:
@@ -32,6 +33,23 @@ async def request_to_user_tool(session_path: str, request_url: str) -> str:
     """
     return await request_to_user(session_path,request_url)
 
+@mcp.tool()
+@to_json
+async def try_to_solve_redirection(session_path: str, db_path:str, redirected_url: str) -> bool:
+    """
+    리다이렉션 페이지에 대해 기본처리(현재는 로그인 리다이렉션만 처리가능)를 시도합니다.
+    처리하면 결과를 세션에 저장합니다.
+
+    Args:
+        session_path: 세션정보가 저장된 파일의 path, 없으면 해당경로에 세션파일을 생성함
+        db_path: db경로
+        redirected_url: 리다이렉션 페이지
+    Returns:
+        성공여부를 bool로
+    """
+    login_db = Redirection_login_db_DB(db_path)
+    r_db = Redirected_page_urls([Try_login_solver(session_path, login_db)])
+    return await r_db.try_solve(redirected_url)
 
 @mcp.tool()
 @to_json
@@ -52,7 +70,7 @@ async def get_page_tool(session_path: str, url: str) -> str:
     return await get_page(session_path,url)
 
 
-@mcp.tool()
+@mcp.tool(task=True)
 @to_json
 async def get_sub_urls_by_click_tool_db(session_path:str, url: str, db_path:str, depth: int = 1) -> list[dict]:
     """
@@ -71,7 +89,7 @@ async def get_sub_urls_by_click_tool_db(session_path:str, url: str, db_path:str,
     """
     return await get_sub_urls_by_click_db(session_path, url, db_path, depth)
 
-@mcp.tool()
+@mcp.tool(task=True)
 @to_json
 async def get_sub_urls_by_click_tool_set(session_path:str, url: str, depth: int = 1) -> list[dict]:
     """
@@ -88,7 +106,7 @@ async def get_sub_urls_by_click_tool_set(session_path:str, url: str, depth: int 
             url: 이동된 페이지의 URL
             title: 이동된 페이지의 제목
     """
-    return await get_sub_urls_by_click_set(session_path, url, depth)
+    return await get_sub_urls_by_click_set(session_path, url, None, depth)
 
 @mcp.tool()
 @to_json

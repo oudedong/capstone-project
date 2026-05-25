@@ -36,13 +36,13 @@ def init_db_tool(path: str) -> str:
 @to_json
 async def insert_db_source_urls(path: str, url: str, summary: str) -> str:
     """
-    일정 관리의 근거가 되는 원본 출처 URL과 요약 정보를 추가합니다.
+    일정 관리의 근거가 되는 원본 출처 URL과 요약 정보를 origin_urls에 추가합니다.
 
     Args:
         path: 데이터베이스 파일 경로
         url: 출처 웹사이트 URL
-        summary: 해당 URL 콘텐츠에 대한 요약 설명
-    Return: 삽입결과
+        summary: 해당 URL 콘텐츠에 대한 요약 설명(직접확인하거나, 사용자한테 물어보기!)
+    Return: 삽입결과, 만약 redirected_urls가 존재하면 해당 url은 리다이렉션 처리가 필요합니다.
     """
     return await insert_origin_url_check_redirection(path, url, summary)
 
@@ -50,7 +50,7 @@ async def insert_db_source_urls(path: str, url: str, summary: str) -> str:
 @to_json
 def insert_db_page_urls(path: str, url: str, title: str) -> str:
     """
-    수집된 개별 일정 안내 페이지의 URL을 저장합니다.
+    일정 안내 페이지의 URL을 page_urls에 추가 합니다.
 
     Args:
         path: 데이터베이스 파일 경로
@@ -63,7 +63,7 @@ def insert_db_page_urls(path: str, url: str, title: str) -> str:
 @to_json
 def insert_db_todo_list(path: str, url: str, content: str, due_date: str) -> str:
     """
-    구체적인 할 일(일정) 정보를 추가합니다.
+    구체적인 할 일(일정) 정보를 todo_list에 추가합니다.
 
     Args:
         path: 데이터베이스 파일 경로
@@ -75,19 +75,37 @@ def insert_db_todo_list(path: str, url: str, content: str, due_date: str) -> str
 
 @mcp.tool()
 @to_json
-def insert_db_page_content(path: str, url_id: int, content: str) -> str:
+def insert_db_login_urls(path:str, login_url:str, 
+                        css_path_id:str, css_path_pw:str, 
+                        login_id:str, login_pw:str) -> str:
     """
-    수집된 페이지의 본문 내용을 저장합니다.
+    로그인페이지와 로그인방법을 login_urls에 추가합니다.
 
     Args:
         path: 데이터베이스 파일 경로
-        url_id: page_urls 테이블의 해당 id
-        content: 페이지의 본문 내용
+        url: 로그인페이지 url
+        css_path_id: 아이디입력창 css선택자
+        css_path_pw: 비밀번호입력창 css선택자
+        login_id: 아이디
+        login_pw: 비번
     """
-    return insert_page_content(path, url_id, content)
+    return insert_login_urls(path, login_url, css_path_id, css_path_pw, login_id, login_pw)
+
+
+# ── 총정리 ────────────────────────────────────────────────────────────────────
 
 
 # ── 조회 ──────────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+@to_json
+def get_db_todo_list_diff(path: str) -> str:
+    """
+    todo_list에서 갱신이전, 갱신이후 목록을 가져와 보여줍니다.
+    Args:
+        path: 데이터베이스 파일 경로
+    """
+    return get_todo_list_diff(path)
 
 @mcp.tool()
 @to_json
@@ -102,7 +120,7 @@ def get_db_origin_urls(path: str) -> str:
 
 @mcp.tool()
 @to_json
-def get_db_page_urls(path: str, refresh=2) -> str:
+def get_db_page_urls(path: str, refresh=2) -> str: ############################################ 수정필요... 
     """
     확인이 필요한(또는 특정 날짜 이전에 확인한) 페이지 URL 목록을 가져옵니다.
     가져온 행들의 마지막 확인 시간(last_check)은 자동으로 현재 시간으로 갱신됩니다.
@@ -128,7 +146,7 @@ def get_db_todo_list_done(path: str) -> str:
 @mcp.tool()
 @to_json
 def get_db_todo_list_overdue(path: str) -> str:
-    """기한이 지난 일정들을 조회하여 JSON 형식으로 반환합니다."""
+    """기한이 지난 완료되지 않은 일정들을 조회하여 JSON 형식으로 반환합니다."""
     return get_todo_list_overdue(path)
 
 @mcp.tool()
@@ -137,6 +155,11 @@ def get_db_unprocessed_page_contents(path: str) -> str:
     """처리되지 않은 페이지 본문 목록을 조회하여 JSON 형식으로 반환합니다."""
     return get_unprocessed_page_contents(path)
 
+@mcp.tool()
+@to_json
+def get_db_unprocessed_redirected_urls(path:str):
+    """처리되지 않은(target_url이 없는) 리다이렉션 url들을 가져옵니다"""
+    return get_unprocessed_redirected_urls(path)
 
 # ── 업데이트 ──────────────────────────────────────────────────────────────────
 
@@ -164,6 +187,18 @@ def mark_db_page_content_processed(path: str, ids: list[int]) -> str:
     """
     return mark_page_content_processed(path, ids)
 
+@mcp.tool()
+@to_json
+def add_db_target_url_to_redirected_urls(path: str, redirected_url:str, target_url:str):
+    """
+    redirected_urls 테이블에 redirected_url에 대해, target_url을 업데이트 합니다
+    
+    Args:
+        redirected_url: 리다이렉션 되는 페이지의 url
+        target_url: 리다이렉션을 해결하기 위한 페이지의 url
+    
+    """
+    return add_target_url_to_redirected_urls(path, redirected_url, target_url)
 
 # ── 삭제 ──────────────────────────────────────────────────────────────────────
 
@@ -188,10 +223,13 @@ def delete_overdue_todo_list_tool(path: str, only_completed: bool = True) -> str
 
 @mcp.tool()
 @to_json
-def delete_done_page_urls_tool(path: str) -> str:
-    """연결된 할 일(todo_list)이 하나도 없는 페이지 URL들을 정리(삭제)합니다."""
-    return delete_done_page_urls(path)
-
+def delete_db_old_todo_list(path: str) -> str:
+    """
+    갱신되지 않은 일정들을 삭제합니다.
+    Args:
+        path: 데이터베이스 파일 경로
+    """
+    return delete_old_todo_list(path)
 
 if __name__ == "__main__":
     mcp.run()

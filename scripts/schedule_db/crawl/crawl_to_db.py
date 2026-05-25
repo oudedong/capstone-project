@@ -108,8 +108,15 @@ def make_todo_list_from_page_contents(db_path: str, extractor)->list[dict]:
     unprocessed_contents = get_unprocessed_page_contents(db_path)
     inserted = []
     for unprocessed in unprocessed_contents:
+        content = unprocessed['content']
+        # Fast filter for error pages
+        # error_keywords = ["접근 불가", "You do not have access", "비정상적인 접근", "로그인이 필요합니다"]
+        # if any(kw in content for kw in error_keywords):
+        #     mark_page_content_processed(db_path, [unprocessed['id']])
+        #     continue
+
         try:
-            ret:dict = extractor(unprocessed['content'])
+            ret:dict = extractor(content)
         except: continue
         inserted += insert_todo(db_path, unprocessed['url'], ret['content'], ret.get('due_date')) # 이미 있는건데 변경사항 있으면?
         mark_page_content_processed(db_path, [unprocessed['id']])
@@ -118,11 +125,23 @@ def make_todo_list_from_page_contents(db_path: str, extractor)->list[dict]:
 def gemini_extractor(content:str)->dict:
     """Gemini CLI를 호출하여 일정과 기한을 json형식 문자열로 반환합니다"""
     prompt = (
-        "아래 html에서 마감 기한과 일정내용을 찾아줘. 최종 결과는 아래 형식으로 답변하고, 파싱에서 오류가 나지 않게 다른 설명은 아예 하지마."
-        "html내용이 게시글 자체일때만 찾아야되, 게시글 목록등 간접적인 페이지에서 추출하면 안되(실패로 처리). 마감기한은 모르겠으면 unknown으로 해"
-        '성공시 출력형식: {"content": "찾은내용", "due_date": "YYYY-MM-DD HH:MM"}'
-        '실패시 출력형식: {"content": "실패이유", "due_date": null}'
-        f"내용:\n{content}"
+        "주어진 HTML에서 마감 기한과 일정 내용을 추출하는 역할입니다. 아래 지침을 엄격히 따르세요.\n\n"
+    
+    "[최우선 지침: 즉시 실패 처리 조건]\n"
+    "1. HTML 내용이 '접근 불가', '로그인 필요', 'Error', '404', 'You do not have access' 등 에러/권한 오류 페이지인 경우,\n"
+    "2. 게시글 본문이 아니라 게시글 목록(리스트) 등 간접적인 페이지인 경우,\n"
+    "위 조건에 해당하면 절대 내용을 찾으려고 시간을 낭비하지 말고, 즉시 아래 '실패 형식'으로만 답변하고 종료하세요.\n\n"
+    
+    "[추출 지침]\n"
+    "- HTML 내용이 정상적인 '게시글 자체'일 때만 내용을 추출하세요.\n"
+    "- 마감 기한이나 일정 내용을 추정할 수 없다면 해당 값을 'unknown'으로 채우세요.\n"
+    "- 파싱 오류를 방지하기 위해 JSON 외에 다른 설명, 인사말, 마크다운(```json)은 아예 하지 마세요.\n\n"
+    
+    "[출력 형식]\n"
+    '성공 시: {"content": "찾은내용", "due_date": "YYYY-MM-DD HH:MM"}\n'
+    '실패 시: {"content": "실패이유(예: 접근 불가 페이지, 목록 페이지 등)", "due_date": null}\n\n'
+    
+    f"내용:\n{content}"
     )
     
     cmd = ["gemini", "-p", prompt]

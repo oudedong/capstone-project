@@ -1,8 +1,12 @@
-from mcp.server.fastmcp import FastMCP
+# from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from schedule_db.db import *
 from schedule_db.crawl import insert_origin_url_check_redirection
 from functools import wraps
 import json
+
+import asyncio
+import inspect
 
 mcp = FastMCP("DB_tools")
 
@@ -10,10 +14,16 @@ mcp = FastMCP("DB_tools")
 # JSON 변환 데코레이터
 def to_json(func):
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    async def async_wrapper(*args, **kwargs):
+        result = await func(*args, **kwargs)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    @wraps(func)
+    def sync_wrapper(*args, **kwargs):
         result = func(*args, **kwargs)
         return json.dumps(result, ensure_ascii=False, indent=2)
-    return wrapper
+
+    return async_wrapper if asyncio.iscoroutinefunction(func) or inspect.isawaitable(func) else sync_wrapper
 
 # ── 초기화 ────────────────────────────────────────────────────────────────────
 
@@ -94,6 +104,40 @@ def insert_db_login_urls(path:str, login_url:str,
 
 # ── 총정리 ────────────────────────────────────────────────────────────────────
 
+@mcp.tool()
+@to_json
+def summarize_db(path:str) -> str:
+    """
+    현재 db에서 필요한 작업들에 대해 알려줍니다.
+    통계, 임박한 일정, 변경된 일정, 리다이렉션 정보를 종합합니다.
+
+    Args:
+        path: 데이터베이스 파일 경로
+    """
+    stats = get_db_stats(path)
+    upcoming = get_upcoming_todos(path, 7)
+    todo_diff = get_todo_list_diff(path)
+    unprocessed_r_urls = get_unprocessed_redirected_urls(path)
+
+    summary = []
+    summary.append("📊 [데이터베이스 현황]")
+    summary.append(f"- 수집된 페이지: {stats['total_pages']}개")
+    summary.append(f"- 분석 완료(AI): {stats['processed_contents']}개")
+    summary.append(f"- 등록된 일정: {stats['total_todos']}개 (완료: {stats['completed_todos']}개)")
+
+    if upcoming:
+        summary.append("\n📅 [7일 이내 임박 일정]")
+        for todo in upcoming:
+            summary.append(f"- {todo['due_date']}: {todo['content']}")
+
+    if todo_diff:
+        summary.append(f"\n🔄 [일정 변경 사항]\n{todo_diff}")
+
+    if unprocessed_r_urls:
+        summary.append(f"\n⚠️ [리다이렉션 처리 필요]\n{unprocessed_r_urls}")
+
+    return "\n".join(summary)
+
 
 # ── 조회 ──────────────────────────────────────────────────────────────────────
 
@@ -129,7 +173,7 @@ def get_db_page_urls(path: str, refresh=2) -> str: #############################
         path: 데이터베이스 파일 경로
         refresh=2: 마지막 확인일 ex) 2이면 갱신일이 2일전 이상인 목록.
     """
-    return get_page_urls(path, refresh)
+    return get_page_urls_to_check(path, refresh)
 
 @mcp.tool()
 @to_json
@@ -151,12 +195,6 @@ def get_db_todo_list_overdue(path: str) -> str:
 
 @mcp.tool()
 @to_json
-def get_db_unprocessed_page_contents(path: str) -> str:
-    """처리되지 않은 페이지 본문 목록을 조회하여 JSON 형식으로 반환합니다."""
-    return get_unprocessed_page_contents(path)
-
-@mcp.tool()
-@to_json
 def get_db_unprocessed_redirected_urls(path:str):
     """처리되지 않은(target_url이 없는) 리다이렉션 url들을 가져옵니다"""
     return get_unprocessed_redirected_urls(path)
@@ -174,18 +212,6 @@ def check_done_todo_list_tool(path: str, ids: list[int]) -> str:
         ids: 완료 처리할 일정들의 ID 목록
     """
     return check_done_todo_list(path, ids)
-
-@mcp.tool()
-@to_json
-def mark_db_page_content_processed(path: str, ids: list[int]) -> str:
-    """
-    요청한 ID들에 해당하는 페이지 본문들을 처리 완료(is_processed=1) 상태로 변경합니다.
-
-    Args:
-        path: 데이터베이스 파일 경로
-        ids: 처리 완료할 페이지 본문들의 ID 목록
-    """
-    return mark_page_content_processed(path, ids)
 
 @mcp.tool()
 @to_json

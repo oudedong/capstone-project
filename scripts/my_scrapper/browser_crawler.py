@@ -55,7 +55,8 @@ async def _fetch_page(session_path: str, url: str,
                       content_extractor: Callable,
                       post_process: Callable[[str], str]) -> dict:
     """웹페이지를 열고 내용을 추출한 뒤 후처리하여 JSON으로 반환합니다."""
-    context = await Playwright_mn.create(session_path, True)
+    # context = await Playwright_mn.create(session_path, True)
+    context = await Playwright_mn.create(session_path, False)
     page = await context.get_page()
     response = None
 
@@ -187,12 +188,12 @@ async def _recursive_dynamic_click(
                 j += 1
                 continue
 
-            print(f"[*] 클릭 시도: {target_html}")
+            print(f"[*] 클릭 시도: {target_html}", file=sys.stderr)
             await target.click(timeout=5000)
             await wait_dom_stable(page)
 
             after_url = page.url
-            print(f"[*] 이동된 url: {after_url}")
+            print(f"[*] 이동된 url: {after_url}", file=sys.stderr)
 
             # 페이지 이동이 생겼으면
             if after_url != init_url:
@@ -217,7 +218,7 @@ async def _recursive_dynamic_click(
                     ret = {"url": after_url, "title": title.strip()}
                     rets.append(ret)
                     global_visited.add(ret)
-                    print(f"[*] 추가한 url: {ret}")
+                    print(f"[*] 추가한 url: {ret['url']}", file=sys.stderr)
                 locators = await restore_state()
                 j += 1
                 continue
@@ -229,7 +230,7 @@ async def _recursive_dynamic_click(
             for k in range(after_count):
                 html = await locators.nth(k).evaluate(_DESCRIBE_JS)
                 if html not in before_elems_html:
-                    print(f"[!] 새로운 요소 발견: {html}")
+                    print(f"[!] 새로운 요소 발견: {html}", file=sys.stderr)
                     new_indices.append(k)
             # 새로운 요소가 있다면
             if new_indices:
@@ -244,7 +245,7 @@ async def _recursive_dynamic_click(
         except Exception as e:
             # import traceback
             # traceback.print_exc(file=sys.stderr)
-            print(f"클릭 실패\n요소:{target_html}\n오류내용:{e}")
+            # print(f"클릭 실패\n요소:{target_html}\n오류내용:{e}", file=sys.stderr)
             j += 1
             continue
 
@@ -260,7 +261,9 @@ async def get_sub_urls_by_click(session_path:str, url: str, visited, Redirected_
     page = None
 
     queue = deque([(url, 0)])
-    visited.add({"url": url, "title": None})
+    try: # 수정필요...
+        visited.add({"url": url, "title": None})
+    except: pass
     rets = []
 
     try:
@@ -282,7 +285,7 @@ async def get_sub_urls_by_click(session_path:str, url: str, visited, Redirected_
                         # 해결실패시
                         if not ret:
                             # 건너뜀
-                            print(f"리다이렉션 해결실패 url:{cur_url}, 건너뜀")
+                            print(f"리다이렉션 해결실패 url:{cur_url}, 건너뜀", file=sys.stderr)
                             continue
                         # 해결성공시: 페이지 갱신후 다시 접속함
                         await nm.reload_state()
@@ -292,11 +295,11 @@ async def get_sub_urls_by_click(session_path:str, url: str, visited, Redirected_
                     # 없을때
                     else:
                         # 리다이렉션 정보를 db에 추가 후 건너뜀
-                        print(f"db에 정보가 없는 리다이렉션 발생 url:{cur_url}, db에 추가 후 건너뜀")
-                        Redirected_page_urls.add({'redirected_url':cur_url, 'target_url':None})
+                        print(f"db에 정보가 없는 리다이렉션 발생 url:{cur_url}, db에 추가 후 건너뜀", file=sys.stderr)
+                        Redirected_page_urls.add({'redirected_url':page.url, 'target_url':None}) # page.url이 실제,리다이렉션된 url
                         continue
                 else:
-                    print(f"리다이렉션 발생 url:{cur_url}, 건너뜀")
+                    print(f"리다이렉션 발생 url:{cur_url}, 건너뜀", file=sys.stderr)
                     continue
 
             for i in range(len(page.frames)):
@@ -308,7 +311,7 @@ async def get_sub_urls_by_click(session_path:str, url: str, visited, Redirected_
                         rets.append(ret)
                         queue.append((ret['url'], cur_depth + 1))
                 except Exception as e:
-                    print(f"url:{cur_url}, e:{str(e)}")
+                    print(f"url:{cur_url}, e:{str(e)}", file=sys.stderr)
                     continue
     finally:
         await nm.close()
@@ -350,7 +353,7 @@ class Redirected_page_urls(Global_visit_page_url):
         try:
             t_url = self._get_target_url(redirected_url)
         except Exception as e:
-            print(f't_url을 얻을 수 없음: url:{redirected_url}, e:{str(e)}')
+            print(f't_url을 얻을 수 없음: url:{redirected_url}, e:{str(e)}', file=sys.stderr)
             return False
         for solver in self.solvers:
             if await solver(t_url):
@@ -409,7 +412,7 @@ class Redirected_page_solver(ABC):
                 await mn.context.storage_state(path=self.session_path)
             return result
         except Exception as e:
-            print(f"solver실패: 클래스명:{self.__class__.__name__}, e:{str(e)}")
+            print(f"solver실패: 클래스명:{self.__class__.__name__}, e:{str(e)}", file=sys.stderr)
             result = False
         finally:
             # mn반환

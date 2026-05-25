@@ -25,13 +25,20 @@ class Redirection_db_temp(Redirection_db):
             'login_pw':'Hsi24682!!'
         }
     
+# async def test():
+#     init_db(DB_PATH)
+#     r_db = Redirection_login_db_DB(DB_PATH)
+#     solvers = [Try_login_solver(SESSION_FILE, r_db, False), Request_to_user_solver(SESSION_FILE, r_db)]
+#     r_set = Redirected_page_urls_DB(DB_PATH, solvers)
+#     # r_set.add({"redirected":r_url, "target_url: None"})
+#     ret = await get_sub_urls_by_click_db(SESSION_FILE, test_url2, DB_PATH)
+#     print(ret)
+
+# asyncio.run(test())
+
 async def test():
-    init_db(DB_PATH)
-    r_db = Redirection_login_db_DB(DB_PATH)
-    solvers = [Try_login_solver(SESSION_FILE, r_db, False), Request_to_user_solver(SESSION_FILE, r_db)]
-    r_set = Redirected_page_urls_DB(DB_PATH, solvers)
-    # r_set.add({"redirected":r_url, "target_url: None"})
-    ret = await get_sub_urls_by_click_db(SESSION_FILE, test_url2, DB_PATH)
+    await request_to_user(SESSION_FILE, test_url)
+    ret = await get_page(SESSION_FILE, test_url2)
     print(ret)
 
 asyncio.run(test())

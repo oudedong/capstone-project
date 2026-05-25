@@ -1,4 +1,4 @@
-from my_scrapper import get_page, get_sub_urls_by_click, Global_visit_page_url
+from my_scrapper import get_page, get_sub_urls_by_click, Global_visit_page_url, get_clean_url
 from my_scrapper import RedirectError, Redirected_page_urls, Redirection_db, Try_login_solver, Redirected_page_solver, Request_to_user_solver
 from ..db import insert_origin_url, insert_redirected_urls
 from ..db import _db_execute_get
@@ -6,6 +6,7 @@ from ..db import get_page_urls_to_check, insert_page_url, insert_page_content, c
 from ..db import get_unprocessed_page_contents, insert_todo, mark_page_content_processed, upsert_page_content, get_page_content
 import json
 import subprocess
+import sys
 
 class Global_visit_DB_page_url(Global_visit_page_url):
     """db를 이용한 방문집합"""
@@ -37,7 +38,7 @@ class Redirection_login_db_DB(Redirection_db):
     def __init__(self, db_path:str):
         self.db_path = db_path
     def __call__(self, redirected_url:str)->dict:
-        ret = _db_execute_get(self.path, 'login_urls', lambda : f"WHERE login_urls='{redirected_url}' ")
+        ret = _db_execute_get(self.db_path, 'login_urls', lambda : f"WHERE login_url='{redirected_url}' ")
         return ret[0]
 
 async def get_sub_urls_by_click_db(session_path: str, url: str, db_path, depth: int = 1) -> list[dict]:
@@ -61,7 +62,7 @@ async def collect_page_contents(session_path: str, db_path: str, urls_to_check:l
     redirected_page_urls_DB = Redirected_page_urls_DB(db_path, [
         Try_login_solver(session_path, r_db), Request_to_user_solver(session_path, r_db)
     ])
-    print("방문이 필요한 페이지들: ", urls_to_check)
+    # print("방문이 필요한 페이지들: ", urls_to_check, file=sys.stderr)
     i = 0
     while i < len(urls_to_check):
         url = urls_to_check[i]
@@ -70,7 +71,7 @@ async def collect_page_contents(session_path: str, db_path: str, urls_to_check:l
                 #페이지 가져오고, 가져온거를 db에 저장, 읽은 시간 갱신
                 result = await get_page(session_path, url['url'])
                 # insert_page_content(db_path, url['url'], result['content']) # 이미 있는건데 변경사항 있으면?
-                result_db = get_page_content(db_path, url)
+                result_db = get_page_content(db_path, url['url'])
                 #이미 있으면(갱신하는 상황)
                 if len(result_db) > 0:
                     result_db = result_db[0]
@@ -78,16 +79,18 @@ async def collect_page_contents(session_path: str, db_path: str, urls_to_check:l
                     if result_db['content'] == result['content']:
                         i += 1
                         continue
-                    defresh_todo_list(db_path, url) # 갱신되기 전에 뽑은 일정들을 오래됨으로 표시함
+                    defresh_todo_list(db_path, url['url']) # 갱신되기 전에 뽑은 일정들을 오래됨으로 표시함
                 upsert_page_content(db_path, url['url'], result['content'])
                 check_page_urls(db_path, [url['id']])
                 i += 1 
             except RedirectError as e:
                 # 리다이렉션 됬을때, 해결시도 후 성공하면 재시도함
-                if e.current_url not in redirected_page_urls_DB:
+                # e.current_url은 실제 튕겨나간(로그인페이지 등) url임
+                clean_r_url = get_clean_url(e.current_url)
+                if clean_r_url not in redirected_page_urls_DB:
                     redirected_page_urls_DB.add({'redirected_url':e.current_url, 'target_url':None})# target_url은 아직모르니까 비워둠
-                    raise Exception("리다이렉션 처리정보가 없어서 처리불가")
-                await redirected_page_urls_DB.try_solve(url)
+                    raise Exception(f"리다이렉션 처리정보가 없어서 처리불가: {e.current_url}")
+                await redirected_page_urls_DB.try_solve(e.current_url)
         except Exception as e:
             fails += [{"url":url['url'], "e":str(e)}]
             i += 1
@@ -125,7 +128,7 @@ def gemini_extractor(content:str)->dict:
     cmd = ["gemini", "-p", prompt]
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=15)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=60)
         final_output = result.stdout.strip()
         
         # JSON 블록 안전하게 추출
@@ -144,10 +147,11 @@ def gemini_extractor(content:str)->dict:
     except Exception as e:
         return {"content": f"시스템 에러: {str(e)}", "due_date": None}
     
-async def insert_origin_url_check_redirection(db_path:str , url:str, summary:str)->list[dict]:
+async def insert_origin_url_check_redirection(db_path:str , url:str, summary:str)->dict:
     '''리다이렉션 여부를 검사하며 넣습니다'''
     redirected_url = None
-    ret = insert_origin_url(db_path, url, summary)
+    ret_list = insert_origin_url(db_path, url, summary)
+    ret = ret_list[0]
     # 리다이렉션 여부 확인
     try:
         await get_page(None, url)
@@ -155,7 +159,7 @@ async def insert_origin_url_check_redirection(db_path:str , url:str, summary:str
         redirected_url = re.current_url # 현재 리다이렉션된 url을 반환함
     except:
         raise
-    print('check_redirect결과:', redirected_url)
+    print('check_redirect결과:', redirected_url, file=sys.stderr)
     # 리다이렉션 되었다면, 리다이렉션된 주소를 db에 저장
     if redirected_url:
         insert_redirected_urls(db_path, redirected_url)

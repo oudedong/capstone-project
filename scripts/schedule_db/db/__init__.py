@@ -8,7 +8,7 @@ from .my_db import (
     # get관련
     get_page_urls, get_origin_urls, get_page_urls_to_check, get_page_content,
     get_todo_list_all, get_todo_list_done, get_todo_list_overdue, get_todo_list_diff,
-    get_unprocessed_page_contents, 
+    get_unprocessed_page_contents, get_db_stats, get_upcoming_todos,
     get_redirected_urls, get_unprocessed_redirected_urls,
     
     insert_origin_url, insert_page_content, insert_page_url, insert_todo, insert_redirected_urls, insert_login_urls,# 삽입관련

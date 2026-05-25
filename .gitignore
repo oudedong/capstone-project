@@ -9,3 +9,5 @@ session.*
 
 #
 *.pyc
+# 로그파일
+*.log

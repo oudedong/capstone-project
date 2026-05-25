@@ -1,6 +1,7 @@
 import sqlite3
 import datetime
 from typing import Callable
+import sys
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
 
 def _cursor_to_list_dict(cursor) -> list[dict]:
@@ -32,7 +33,7 @@ def _db_execute(path: str, table: str,
         conn.commit()
         return result
     except Exception as e:
-        print(f"DB 작업 중 에러 발생: {e}")
+        print(f"DB 작업 중 에러 발생: {e}", file=sys.stderr)
         raise
     finally:
         if conn:
@@ -111,7 +112,7 @@ def _insert(cursor, table: str, columns: list[str], values: list):
     try:
         cursor.execute(sql, values)
     except Exception as e:
-        print(f"삽입 중 에러 발생: {e}")
+        print(f"삽입 중 에러 발생: {e}", file=sys.stderr)
         raise
 
 def _db_execute_insert(path: str, table: str, columns: list[str], values:list) -> list[dict]:
@@ -153,7 +154,7 @@ def insert_login_urls(path:str, login_url:str,
 
 def upsert_page_content(path: str, url: str, content: str):
     """페이지의 본문 내용을 저장 또는 업데이트 합니다."""
-    _filter = lambda: "WHERE url={url} "
+    _filter = lambda: f"WHERE url='{url}' "
     if _db_execute_get(path, 'page_contents', _filter):
         # 이미 있으면 삽입하지 말고 업데이트, is_processed도 초기화
         _db_execute_update(path, 'page_contents', 'content', content, _filter)
@@ -173,7 +174,7 @@ def _get(cursor, table: str, filter_func: Callable[[], str] = None):
     try:
         cursor.execute(query)
     except Exception as e:
-        print(f"get 중 에러 발생: {e}")
+        print(f"get 중 에러 발생: {e}", file=sys.stderr)
         raise
 
 def _db_execute_get(path: str, table: str,
@@ -203,7 +204,7 @@ def get_page_urls_to_check(path: str, refresh: int):
 
     return _db_execute_get(path, 'page_urls', filter_func)
 
-_get_todo_list_base_filter = "WHERE is_fresh=1 AND due_data IS NOT NULL "
+_get_todo_list_base_filter = "WHERE is_fresh=1 AND due_date IS NOT NULL "
 
 def get_todo_list_all(path: str):
     """전체 할 일 목록을 JSON으로 반환합니다."""
@@ -215,21 +216,28 @@ def get_todo_list_done(path: str):
 
 def get_todo_list_overdue(path: str):
     """기한이 지나고 끝내지못한 할 일 목록을 JSON으로 반환합니다."""
-    return _db_execute_get(path, 'todo_list', lambda: f"{_get_todo_list_base_filter}AND due_date < c AND is_completed=0")
+    date_now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    return _db_execute_get(path, 'todo_list', lambda: f"{_get_todo_list_base_filter}AND due_date < '{date_now}' AND is_completed=0")
 
-def get_todo_list_diff(path:str): # mcp에 추가해주기!!
+def get_todo_list_diff(path:str): # 효율적이게 수정필요..
     """페이지별로 갱신이전, 이후 todo_list를 반환합니다."""
-    todos = _db_execute_get(path, 'todo_list', lambda:"WHERE due_data IS NOT NULL ")
+    todos = _db_execute_get(path, 'todo_list', lambda:"WHERE due_date IS NOT NULL ")
+    temp = {}
     ret = {}
     for todo in todos:
-        if ret.get(todo['url']) == None:
-            ret[todo['url']] = {'fresh': [], 'old': []}
+        if temp.get(todo['url']) == None:
+            temp[todo['url']] = {'fresh': [], 'old': []}
         to_append = None
         if todo['is_fresh']:
-            to_append = ret[todo['url']]['fresh']
+            to_append = temp[todo['url']]['fresh']
         else:
-            to_append = ret[todo['url']]['old']
+            to_append = temp[todo['url']]['old']
         to_append.append({'content':todo['content'],'is_completed':todo['is_completed'], 'due_date':todo['due_date']})
+    for k in temp.keys():
+        cur = temp[k]
+        if len(cur['old']) <= 0:
+            continue
+        ret[k] = cur
     return ret
         
 def get_unprocessed_page_contents(path: str):
@@ -242,12 +250,48 @@ def get_redirected_urls(path:str, cur_url:str):
 
 def get_unprocessed_redirected_urls(path:str):
     """처리되지 않은 리다이렉션 url들을 가져옵니다"""
-    return _db_execute_get(path, 'redirected_urls', lambda: f"WHERE target_url=NULL ")
+    return _db_execute_get(path, 'redirected_urls', lambda: f"WHERE target_url IS NULL ")
 
 def get_page_content(path:str, url:str):
     """특정페이지의 content를 가져옵니다"""
-    return _db_execute_get(path, 'page_contents', lambda: f"WHERE url={url} ")
+    return _db_execute_get(path, 'page_contents', lambda: f"WHERE url='{url}' ")
 
+
+def get_db_stats(path: str) -> dict:
+    """DB의 전체적인 통계 정보를 반환합니다."""
+    conn = sqlite3.connect(path)
+    cursor = conn.cursor()
+    try:
+        stats = {}
+        # 전체 페이지 수
+        cursor.execute("SELECT count(*) FROM page_urls")
+        stats['total_pages'] = cursor.fetchone()[0]
+        
+        # 분석 완료된 본문 수
+        cursor.execute("SELECT count(*) FROM page_contents WHERE is_processed=1")
+        stats['processed_contents'] = cursor.fetchone()[0]
+        
+        # 전체 일정 수 (신선한 것만)
+        cursor.execute("SELECT count(*) FROM todo_list WHERE is_fresh=1 AND due_date IS NOT NULL")
+        stats['total_todos'] = cursor.fetchone()[0]
+        
+        # 완료된 일정 수
+        cursor.execute("SELECT count(*) FROM todo_list WHERE is_fresh=1 AND is_completed=1")
+        stats['completed_todos'] = cursor.fetchone()[0]
+        
+        return stats
+    finally:
+        conn.close()
+
+def get_upcoming_todos(path: str, days: int = 7) -> list[dict]:
+    """지정한 일수 이내로 남은 임박한 일정들을 가져옵니다."""
+    date_limit = (datetime.datetime.now() + datetime.timedelta(days=days)).strftime('%Y-%m-%d %H:%M')
+    date_now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    
+    def filter_func():
+        return f"WHERE is_fresh=1 AND is_completed=0 AND due_date >= '{date_now}' AND due_date <= '{date_limit}' ORDER BY due_date ASC"
+    
+    return _db_execute_get(path, 'todo_list', filter_func)
 
 # ── 업데이트 ──────────────────────────────────────────────────────────────────
 
@@ -262,7 +306,7 @@ def _update(cursor, table: str, column: str, val,
     try:
         cursor.execute(query)
     except Exception as e:
-        print(f"db업데이트중 오류발생: {str(e)}")
+        print(f"db업데이트중 오류발생: {str(e)}", file=sys.stderr)
         raise
 
 def _db_execute_update(path: str, table: str, column: str, val,
@@ -319,7 +363,7 @@ def _delete(cursor, table: str, filter_func: Callable[[], str]) -> list[dict]:
     try:
         cursor.execute(query)
     except Exception as e:
-        print(f"db삭제중 오류발생: {str(e)}")
+        print(f"db삭제중 오류발생: {str(e)}", file=sys.stderr)
         raise
 
 def _db_execute_delete(path: str, table: str, filter_func: Callable[[], str] = None) -> list[dict]:

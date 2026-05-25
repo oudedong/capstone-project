@@ -22,7 +22,7 @@
 - **용도**: 수집된 페이지의 본문 내용을 저장하여 비동기 분석에 활용
 - **구조**:
   - `id`: INTEGER (PK, 자동 증가)
-  - `url_id`: INTEGER (FK, page_urls의 id 참조)
+  - `url`: TEXT (UNIQUE, FK, page_urls의 url 참조)
   - `content`: TEXT (페이지의 본문 내용)
   - `is_processed`: BOOLEAN (기본값 0, 분석 완료 여부)
 
@@ -34,3 +34,21 @@
   - `content`: TEXT (NOT NULL, 할 일 내용)
   - `is_completed`: BOOLEAN (기본값 0, 완료 여부)
   - `due_date`: TEXT (NULL가능, 모르면 비워도됨)
+  - `is_fresh`: BOOLEAN (기본값 1, 최근 갱신 여부)
+
+### 5. redirected_urls (리다이렉션 관리)
+- **용도**: 리다이렉션이 발생하는 URL과 그 해결을 위한 타겟 URL 저장
+- **구조**:
+  - `id`: INTEGER (PK, 자동 증가)
+  - `redirected_url`: TEXT (UNIQUE, 리다이렉션 발생 URL)
+  - `target_url`: TEXT (해결을 위한 타겟 URL, 해결을위해 이동해야할 url)
+
+### 6. login_urls (로그인 정보 관리)
+- **용도**: 사이트별 로그인 정보 및 입력 필드 CSS 선택자 저장
+- **구조**:
+  - `id`: INTEGER (PK, 자동 증가)
+  - `login_url`: TEXT (UNIQUE, 로그인 페이지 URL)
+  - `css_path_id`: TEXT (아이디 입력창 CSS 선택자)
+  - `css_path_pw`: TEXT (비밀번호 입력창 CSS 선택자)
+  - `login_id`: TEXT (사용자 아이디)
+  - `login_pw`: TEXT (사용자 비밀번호)

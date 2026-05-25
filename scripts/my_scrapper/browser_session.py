@@ -8,10 +8,11 @@ async def get_shared_context(headless: bool, session_path: str = None):
     browser = await playwright.chromium.launch(headless=headless)
 
     # 세션 파일이 존재하나 확인
-    try:
-        with open(session_path, "rb") as f: pass
-    except FileNotFoundError as e:
-        session_path = None
+    if session_path is not None:
+        try:
+            with open(session_path, "rb") as f: pass
+        except FileNotFoundError as e:
+            session_path = None
 
     context = await browser.new_context(
         storage_state=session_path,
@@ -51,7 +52,7 @@ class Playwright_mn:
             await self.new_page()
         return self.page
     async def storage_state(self):
-        return self.context.storage_state(path=self.session_path)
+        return await self.context.storage_state(path=self.session_path)
     async def close(self):
         if self.page:
             await self.page.close()

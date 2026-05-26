@@ -55,7 +55,7 @@ test_url3='https://software.korea.ac.kr/software/9446/subview.do?enc=Zm5jdDF8QEB
 #     r_db = Redirected_page_urls_DB(DB_PATH, [Try_login_solver(SESSION_FILE, login_db, False)])
 #     insert_redirected_urls(DB_PATH, "https://lms.korea.ac.kr/")
 #     add_target_url_to_redirected_urls(DB_PATH, "https://lms.korea.ac.kr/", 'https://ksso.korea.ac.kr/svc/tk/Auth.do?id=lms&ac=Y&ifa=N&RelayState=https%3A%2F%2Flms.korea.ac.kr%2Fxn-sso%2Fgw-cb.php%3Ffrom%3D%26site%3D%26login_type%3Dstandalone%26return_url%3Dhttps%253A%252F%252Flms.korea.ac.kr%252Flogin%252Fcallback&')
-#     insert_login_urls(DB_PATH, 'https://ksso.korea.ac.kr/svc/tk/Auth.do?id=lms&ac=Y&ifa=N&RelayState=https%3A%2F%2Flms.korea.ac.kr%2Fxn-sso%2Fgw-cb.php%3Ffrom%3D%26site%3D%26login_type%3Dstandalone%26return_url%3Dhttps%253A%252F%252Flms.korea.ac.kr%252Flogin%252Fcallback&', "#one_id", "#password", "oudedong", "Hsi24682!!")
+#     insert_login_urls(DB_PATH, 'https://ksso.korea.ac.kr/svc/tk/Auth.do?id=lms&ac=Y&ifa=N&RelayState=https%3A%2F%2Flms.korea.ac.kr%2Fxn-sso%2Fgw-cb.php%3Ffrom%3D%26site%3D%26login_type%3Dstandalone%26return_url%3Dhttps%253A%252F%252Flms.korea.ac.kr%252Flogin%252Fcallback&', "#one_id", "#password", "", "")
 #     ret = await r_db.try_solve("https://lms.korea.ac.kr/")
 #     print(ret)
 

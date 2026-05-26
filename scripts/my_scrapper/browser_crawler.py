@@ -7,6 +7,8 @@ from .browser_session import Playwright_mn, wait_dom_stable, is_interactable
 from .html_cleaner import recursive_iframe_replace, clean_html
 
 from abc import ABC, abstractmethod
+from playwright.async_api import TimeoutError, Error  # <-- 예외 객체 import
+import asyncio
 
 # ── 페이지 가져오기 ────────────────────────────────────────────────────────────
 
@@ -66,7 +68,8 @@ async def _fetch_page(session_path: str, url: str,
         await wait_dom_stable(page)
 
         content = await content_extractor(page.main_frame)
-        content = post_process(content)
+        if post_process:
+            content = post_process(content)
 
         result = {
             "current_url": page.url,
@@ -86,6 +89,13 @@ async def _fetch_page(session_path: str, url: str,
         return f"페이지 로드 실패, status:{status_code}, 에러내용: {str(e)}"
     finally:
         await context.close()
+
+async def get_raw_page(session_path:str, url :str) -> str:
+    """URL 페이지를 가져와 HTML원본을 JSON으로 반환합니다."""
+    async def _content_extractor(frame):
+        return await recursive_iframe_replace(frame)
+
+    return await _fetch_page(session_path, url, _content_extractor, None)
 
 async def get_page(session_path: str, url: str) -> str:
     """URL 페이지를 가져와 HTML을 후처리하고 JSON으로 반환합니다."""
@@ -154,6 +164,7 @@ async def _recursive_dynamic_click(
 
     async def restore_state():
         await page.goto(init_url, wait_until="domcontentloaded")
+        # await page.goto(init_url, wait_until="networkidle")
         for nth in init_click_elements_nths:
             await wait_dom_stable(page)
             target_frame = page.frames[frame_index]
@@ -164,7 +175,12 @@ async def _recursive_dynamic_click(
         return await tag_extractor(target_frame)
     
     rets = []
-    locators = await restore_state()
+    try:
+        locators = await restore_state()
+    except Exception as e:
+        print(f"e:{e}",file=sys.stderr)
+        print(f"len of page.frames:{len(page.frames)}, init_url:{init_url}")
+        raise
     count = await locators.count()
 
     before_elems_html = [
@@ -242,12 +258,9 @@ async def _recursive_dynamic_click(
                 )
                 locators = await restore_state()
             j += 1
-        except Exception as e:
-            # import traceback
-            # traceback.print_exc(file=sys.stderr)
-            # print(f"클릭 실패\n요소:{target_html}\n오류내용:{e}", file=sys.stderr)
+        except TimeoutError as e:
+            print(f"클릭 실패", file=sys.stderr)
             j += 1
-            continue
 
     return rets
 
@@ -261,14 +274,14 @@ async def get_sub_urls_by_click(session_path:str, url: str, visited, Redirected_
     page = None
 
     queue = deque([(url, 0)])
-    try: # 수정필요...
+    if url not in visited:
         visited.add({"url": url, "title": None})
-    except: pass
     rets = []
 
     try:
         while queue:
             cur_url, cur_depth = queue.popleft()
+            print(f"pop됨: url:{cur_url}, cur_depth:{cur_depth}", file=sys.stderr)
             if depth > 0 and cur_depth >= depth:
                 continue
             
@@ -276,6 +289,8 @@ async def get_sub_urls_by_click(session_path:str, url: str, visited, Redirected_
             page = await nm.get_page()
             await page.goto(cur_url, wait_until="domcontentloaded", timeout=0)
             await wait_dom_stable(page)
+            # await asyncio.sleep(3) # 아이프레임 대기용?
+
             # 만약 처음접속한 페이지가 리다이렉션 페이지이면
             if cur_url != page.url:
                 if Redirected_page_urls != None :
@@ -301,9 +316,11 @@ async def get_sub_urls_by_click(session_path:str, url: str, visited, Redirected_
                 else:
                     print(f"리다이렉션 발생 url:{cur_url}, 건너뜀", file=sys.stderr)
                     continue
-
+            
+            # print(f"get_sub_urls_by_click 초기 프레임개수: {len(page.frames)}", file=sys.stderr)
             for i in range(len(page.frames)):
                 try:
+                    # print(f"get_sub_urls_by_click for문: i:{i}, 프레임개수:{len(page.frames)}, url:{cur_url}", file=sys.stderr)
                     frame_rets = await _recursive_dynamic_click(
                         cur_url, nm, i, _tag_extractor, visited, Redirected_page_urls
                     )
@@ -311,7 +328,10 @@ async def get_sub_urls_by_click(session_path:str, url: str, visited, Redirected_
                         rets.append(ret)
                         queue.append((ret['url'], cur_depth + 1))
                 except Exception as e:
-                    print(f"url:{cur_url}, e:{str(e)}", file=sys.stderr)
+                    import traceback
+                    # print(f"=== 에러 발생 위치 ===", file=sys.stderr)
+                    # traceback.print_exc(file=sys.stderr) # <-- 어느 함수, 몇 번째 줄인지 정확히 찍힙니다.
+                    print(f"get_sub_urls_by_click에서 오류발생 url:{cur_url}, e:{str(e)}", file=sys.stderr)
                     continue
     finally:
         await nm.close()
@@ -364,16 +384,19 @@ class Redirected_page_urls(Global_visit_page_url):
         # 리다이렉션을 처리하기위해 이동해야되는 페이지를 줌(로그인페이지 등등)
         pass
     def add(self, data:dict):
-        # 쿼리스트링 때줌, 아래 2가지 값이 있어야됨
-        r_url = get_clean_url(data['redirected_url']) # 리다이렉션된 url
-        t_url = data['target_url']                    # 처리를 할 url위치 
-        self._add(r_url, t_url)
+        # 삽입시 쿼리스트링 땜, 아래 2가지 값이 있어야됨
+        r_url = get_clean_url(data['redirected_url'])  # 리다이렉션된 url
+        t_url = data['target_url']      # 처리를 할 url위치 
+        try:
+            self._add(r_url, t_url)
+        except Exception as e:
+            print(f"리다이렉션 추가 중 오류 발생: {str(e)}",file=sys.stderr)
     @abstractmethod
     def _add(self, r_url:str, t_url:str):
         # 실제 삽입부분
         pass
     def __contains__(self, url:str)->bool:
-        # 마찬가지로 쿼리스트링 때줌
+        # 쿼리스트링을 때줌, db에 때서 넣었으므로
         url = get_clean_url(url)
         return self._contains(url)
     @abstractmethod
@@ -406,11 +429,14 @@ class Redirected_page_solver(ABC):
         try:
             # solver로 해결시도
             mn = await Playwright_mn.create(self.session_path, self.headless)
-            result = await self._solve(mn, data)
-            if result:
-                #성공시 세션저장
+            await self._solve(mn, data)
+            # url변화시 성공으로 간주
+            page = await mn.get_page()
+            await wait_dom_stable(page)
+            if page.url != redirected_url:
                 await mn.context.storage_state(path=self.session_path)
-            return result
+                return True
+            return False
         except Exception as e:
             print(f"solver실패: 클래스명:{self.__class__.__name__}, e:{str(e)}", file=sys.stderr)
             result = False
@@ -418,7 +444,7 @@ class Redirected_page_solver(ABC):
             # mn반환
             await mn.close()
     @abstractmethod
-    async def _solve(self, mn:Playwright_mn, data:dict)->bool:
+    async def _solve(self, mn:Playwright_mn, data:dict):
         """
         실제 해결하는 부분
         mn: playwright객체,
@@ -432,7 +458,7 @@ class Try_login_solver(Redirected_page_solver):
     """
     def __init__(self, session_path:str, data_source, headless=True):
         super().__init__(session_path, data_source, headless)
-    async def _solve(self, mn:Playwright_mn, data:dict)->bool:
+    async def _solve(self, mn:Playwright_mn, data:dict):
         """
         data는 반드시 아래 필드를 가지고 있어야됨!!!!
         login_url: 로그인을 시도할 url
@@ -460,12 +486,6 @@ class Try_login_solver(Redirected_page_solver):
         # 엔터
         await pw_field.press("Enter")
         
-        # 로그인 성공여부 확인
-        await wait_dom_stable(page)
-        ## url이 바뀌었다면 성공처리
-        if page.url != login_url:
-            return True
-        return False
 class Request_to_user_solver(Redirected_page_solver):
     """
     유저에게 해결을 요청하는 클래스
@@ -473,7 +493,7 @@ class Request_to_user_solver(Redirected_page_solver):
     """
     def __init__(self, session_path:str, data_source):
         super().__init__(session_path, data_source, False)
-    async def _solve(self, mn:Playwright_mn, data:dict)->bool:
+    async def _solve(self, mn:Playwright_mn, data:dict):
         """
         data는 반드시 아래 필드를 가지고 있어야됨!!!!
         login_url: 로그인을 시도할 url
@@ -483,7 +503,6 @@ class Request_to_user_solver(Redirected_page_solver):
         # channel_to_user = data['channel_to_user']
 
         _request_to_user(mn, login_url)
-        return True
     
 class Redirection_db(ABC):
     """

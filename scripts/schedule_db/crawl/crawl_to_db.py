@@ -90,7 +90,12 @@ async def collect_page_contents(session_path: str, db_path: str, urls_to_check:l
                 if clean_r_url not in redirected_page_urls_DB:
                     redirected_page_urls_DB.add({'redirected_url':e.current_url, 'target_url':None})# target_url은 아직모르니까 비워둠
                     raise Exception(f"리다이렉션 처리정보가 없어서 처리불가: {e.current_url}")
-                await redirected_page_urls_DB.try_solve(e.current_url)
+                ret = await redirected_page_urls_DB.try_solve(e.current_url)
+                # 성공시 i 증가 안하고, 다시시도
+                if ret: continue
+                # 실패시 다음으로 넘어감
+                i += 1
+
         except Exception as e:
             fails += [{"url":url['url'], "e":str(e)}]
             i += 1
@@ -144,7 +149,7 @@ def gemini_extractor(content:str)->dict:
     f"내용:\n{content}"
     )
     
-    cmd = ["gemini", "-p", prompt]
+    cmd = ["gemini", "--model", "gemini-2.5-flash", "-p", prompt]
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=60)
@@ -181,6 +186,6 @@ async def insert_origin_url_check_redirection(db_path:str , url:str, summary:str
     print('check_redirect결과:', redirected_url, file=sys.stderr)
     # 리다이렉션 되었다면, 리다이렉션된 주소를 db에 저장
     if redirected_url:
-        insert_redirected_urls(db_path, redirected_url)
+        Redirected_page_urls_DB(db_path, []).add({"redirected_url":redirected_url, "target_url":None})
         ret['redirected_url'] = redirected_url
     return ret

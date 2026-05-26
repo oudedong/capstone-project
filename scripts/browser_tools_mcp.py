@@ -1,6 +1,6 @@
 # from mcp.server.fastmcp import FastMCP
 from fastmcp import FastMCP
-from my_scrapper import request_to_user, get_page, get_sub_urls_by_click_set
+from my_scrapper import request_to_user, get_page, get_sub_urls_by_click_set, get_raw_page
 from my_scrapper import Redirected_page_urls, Try_login_solver
 from schedule_db.crawl import *
 from schedule_db.db import *
@@ -62,14 +62,33 @@ async def try_to_solve_redirection(session_path: str, db_path:str, redirected_ur
         성공여부를 bool로
     """
     login_db = Redirection_login_db_DB(db_path)
-    r_db = Redirected_page_urls([Try_login_solver(session_path, login_db)])
+    r_db = Redirected_page_urls_DB(db_path, [Try_login_solver(session_path, login_db)])
     return await r_db.try_solve(redirected_url)
+
 
 @mcp.tool()
 @to_json
-async def get_page_tool(session_path: str, url: str) -> str:
+async def get_raw_page_tool(session_path: str, url: str) -> str:
     """
     URL 페이지를 가져와 HTML을 추출하고, 정보들을 JSON 형태로 반환합니다.
+
+    Args:
+        url: 페이지 URL
+    Returns:
+        session_path: 세션정보가 저장된 파일의 path
+        current_url: 현재 페이지 URL
+        current_page_title: 현재 페이지 제목
+        content: 원본 페이지 내용
+        intended_url: 접근하려 했던 URL
+        is_intended_url: 현재 페이지가 접근하려 했던 페이지인지 여부
+    """
+    return await get_raw_page(session_path,url)
+
+@mcp.tool()
+@to_json
+async def get_post_processed_page_tool(session_path: str, url: str) -> str:
+    """
+    URL 페이지를 가져와 HTML을 추출하고 **후처리 후** , 정보들을 JSON 형태로 반환합니다.
 
     Args:
         url: 페이지 URL

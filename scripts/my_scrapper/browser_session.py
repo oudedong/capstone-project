@@ -1,6 +1,7 @@
 import asyncio
 import time
 from playwright.async_api import async_playwright
+import sys
 
 async def get_shared_context(headless: bool, session_path: str = None):
     """Playwright context와 browser 인스턴스를 반환합니다."""
@@ -66,31 +67,47 @@ class Playwright_mn:
 
 
 async def wait_dom_stable(page, timeout: int = 5000, stable_ms: int = 500):
-    """DOM 변화가 멈출 때까지 대기합니다."""
+    """DOM 내용과 아이프레임 개수가 모두 멈출 때까지 대기합니다."""
     try:
         await page.wait_for_load_state("load", timeout=2000)
     except Exception:
-        pass  # 타임아웃이 나도 아래 루프에서 한 번 더 검증
+        pass
 
-    start = time.time()
+    start_time = time.time()
     last_html = ""
+    last_frame_count = -1
     stable_start = None
 
     while True:
-        gap = (time.time() - start) * 1000
-        try:
-            if gap > timeout:
-                raise Exception("wait_dom_stable: 시간 초과")
-            html = await page.content()
+        gap = (time.time() - start_time) * 1000
+        if gap > timeout:
+            print("[!] wait_dom_stable: 시간 초과 (현재 상태로 진행)", file=sys.stderr)
+            return
 
-            if html == last_html:
+        try:
+            current_html = await page.content()
+            current_frame_count = len(page.frames)
+
+            # 1. 메인 HTML 내용과 프레임 개수가 '모두' 이전 루프와 똑같은지 확인
+            if current_html == last_html and current_frame_count == last_frame_count:
                 if stable_start is None:
                     stable_start = time.time()
+                
+                # 2. 지정된 시간(예: 500ms) 동안 변화가 없었다면 조건 충족
                 if (time.time() - stable_start) * 1000 >= stable_ms:
-                    return  # 안정화 완료
+                    # 마지막으로 안전하게 생성된 모든 프레임의 로딩 상태가 끝났는지 체크
+                    frame_tasks = [
+                        f.wait_for_load_state("load", timeout=1000) 
+                        for f in page.frames if not f.is_detached()
+                    ]
+                    if frame_tasks:
+                        await asyncio.gather(*frame_tasks, return_exceptions=True)
+                    return  # 완전히 안정화됨
             else:
+                # 변화가 생겼다면 타이머를 초기화하고 최신 상태를 기록
                 stable_start = None
-                last_html = html
+                last_html = current_html
+                last_frame_count = current_frame_count
 
         except Exception:
             await asyncio.sleep(0.2)

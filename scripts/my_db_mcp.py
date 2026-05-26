@@ -177,9 +177,9 @@ def get_db_page_urls(path: str, refresh=2) -> str: #############################
 
 @mcp.tool()
 @to_json
-def get_db_todo_list_all(path: str) -> str:
-    """전체 할 일 목록(todo_list)을 조회하여 JSON 형식으로 반환합니다."""
-    return get_todo_list_all(path)
+def get_db_todo_list_going(path: str) -> str:
+    """진행중인(기한이 남음, 기한이 없음) 일정을 조회하여 JSON 형식으로 반환합니다."""
+    return get_todo_list_going(path)
 
 @mcp.tool()
 @to_json

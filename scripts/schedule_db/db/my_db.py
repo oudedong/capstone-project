@@ -210,6 +210,11 @@ def get_todo_list_all(path: str):
     """전체 할 일 목록을 JSON으로 반환합니다."""
     return _db_execute_get(path, 'todo_list', lambda:_get_todo_list_base_filter)
 
+def get_todo_list_going(path:str):
+    """진행중인 일정목록을 JSON으로 반환합니다."""
+    date_now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    return _db_execute_get(path, 'todo_list', lambda:_get_todo_list_base_filter+f"AND due_date >= '{date_now}'")
+
 def get_todo_list_done(path: str):
     """완료된 할 일 목록을 JSON으로 반환합니다."""
     return _db_execute_get(path, 'todo_list', lambda: f"{_get_todo_list_base_filter}AND is_completed=1 ")

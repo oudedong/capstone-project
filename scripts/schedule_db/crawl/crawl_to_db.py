@@ -7,6 +7,7 @@ from ..db import get_unprocessed_page_contents, insert_todo, mark_page_content_p
 import json
 import subprocess
 import sys
+import requests
 
 class Global_visit_DB_page_url(Global_visit_page_url):
     """db를 이용한 방문집합"""
@@ -122,9 +123,26 @@ def make_todo_list_from_page_contents(db_path: str, extractor)->list[dict]:
 
         try:
             ret:dict = extractor(content)
-        except: continue
-        inserted += insert_todo(db_path, unprocessed['url'], ret['content'], ret.get('due_date')) # 이미 있는건데 변경사항 있으면?
-        mark_page_content_processed(db_path, [unprocessed['id']])
+            print(ret) # 
+            if not isinstance(ret, dict):
+                raise ValueError("Extractor returned non-dict value")
+            
+            # Fallback for keys if 'content' key is missing
+            if 'content' not in ret:
+                for alt_key in ['schedule', 'task', 'todo', 'text', 'message']:
+                    if alt_key in ret:
+                        ret['content'] = ret[alt_key]
+                        break
+            
+            # If still missing, skip or raise error
+            if 'content' not in ret:
+                raise KeyError("Missing 'content' key in extracted dictionary")
+                
+            inserted += insert_todo(db_path, unprocessed['url'], ret['content'], ret.get('due_date'))
+            mark_page_content_processed(db_path, [unprocessed['id']])
+        except Exception as e:
+            print(f"일정 추출 및 저장 중 오류 발생: {str(e)}", file=sys.stderr)
+            continue
     return inserted
 
 def gemini_extractor(content:str)->dict:
@@ -149,12 +167,63 @@ def gemini_extractor(content:str)->dict:
     f"내용:\n{content}"
     )
     
-    cmd = ["gemini", "--model", "gemini-2.5-flash", "-p", prompt]
+    cmd = ["agy", "-p", prompt]
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=60)
         final_output = result.stdout.strip()
         
+        # JSON 블록 안전하게 추출
+        start_index = final_output.find('{')
+        end_index = final_output.rfind('}') # 뒤에서부터 찾도록 변경
+        
+        if start_index == -1 or end_index == -1:
+            return {"content": f"LLM이 올바른 형식을 반환하지 않음: {final_output}", "due_date": None}
+            
+        json_str = final_output[start_index:end_index+1]
+        return json.loads(json_str)
+        
+    except json.JSONDecodeError:
+        # 파싱 에러 발생 시 프로그램이 죽지 않고 '실패용 안전 딕셔너리'를 반환하여 데이터 흐름 유지
+        return {"content": f"JSON 파싱 실패 원본: {final_output}", "due_date": None}
+    except Exception as e:
+        return {"content": f"시스템 에러: {str(e)}", "due_date": None}
+    
+def ollama_extractor(content:str)->dict:
+    """ollama를 호출하여 일정과 기한을 json형식 문자열로 반환합니다"""
+    system_prompt = (
+        "You are a strict HTML data extractor. Analyze the provided HTML and output ONLY a raw JSON object.\n\n"
+        "[CRITICAL RULE: IMMEDIATE FAILURE CONDITION]\n"
+        "1. If the HTML contains error/access restriction messages ('접근 불가', '로그인 필요', 'Error', '404', 'You do not have access'), or\n"
+        "2. If it is a list/board page (게시글 목록) instead of an individual post,\n"
+        "You MUST immediately trigger the FAIL format.\n\n"
+        "[OUTPUT FORMAT]\n"
+        "- Success: {\"content\": \"extracted schedule content\", \"due_date\": \"YYYY-MM-DD HH:MM\"}\n"
+        "- Fail: {\"content\": \"Reason (e.g., 접근 불가 페이지, 목록 페이지 등)\", \"due_date\": null}\n\n"
+        "If the due date cannot be determined, fill it with 'unknown'."
+    )
+
+    # HTML 본문 데이터를 태그로 감싸서 모델이 데이터 영역임을 명확히 인지하게 합니다.
+    user_content = f"<html_content>\n{content}\n</html_content>"
+
+    try:
+        # 지침 준수율을 높이기 위해 /api/chat 엔드포인트를 사용합니다.
+        response = requests.post(
+            "http://migu.iptime.org:51434/api/chat",
+            json={
+                "model": "qwen3:8b",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                "stream": False,
+                "format": "json",  # 중요: Ollama 엔진 단에서 무조건 순수 JSON만 출력하도록 강제합니다.
+                "options": {
+                    "temperature": 0  # 중요: 모델의 뻘짓이나 창의성을 원천 차단하고 지침만 따르게 합니다.
+                }
+            }
+        )
+        final_output = response.json()["message"]["content"]
         # JSON 블록 안전하게 추출
         start_index = final_output.find('{')
         end_index = final_output.rfind('}') # 뒤에서부터 찾도록 변경

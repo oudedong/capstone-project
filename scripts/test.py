@@ -7,8 +7,8 @@ from pathlib import Path
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = os.path.join(BASE_DIR, 'workspace', 'data', 'schedule_test.db')
-SESSION_FILE = Path("/home/oudedong/capstone-agent/.gemini/session.json")
+DB_PATH = os.path.join(BASE_DIR, 'workspace', 'data', 'schedule.db')
+SESSION_FILE = Path("/home/oudedong/capstone-agent/workspace/data/session.json")
 
 test_url='https://lms.korea.ac.kr/'
 r_url = 'https://lms.korea.ac.kr/xn-sso/login.php'
@@ -61,7 +61,9 @@ test_url3='https://software.korea.ac.kr/software/9446/subview.do?enc=Zm5jdDF8QEB
 
 # origin_url삽입시 리다이렉션 감지,저장
 async def test():
-    init_db(DB_PATH)
-    await insert_origin_url_check_redirection(DB_PATH, test_url2, "고려대 LMS")
-    await run_extraction(DB_PATH, SESSION_FILE)
+    # init_db(DB_PATH)
+    # await insert_origin_url_check_redirection(DB_PATH, test_url2, "고려대 LMS")
+    # await run_extraction(DB_PATH, SESSION_FILE)
+
+    make_todo_list_from_page_contents(DB_PATH, gemini_extractor)
 asyncio.run(test())

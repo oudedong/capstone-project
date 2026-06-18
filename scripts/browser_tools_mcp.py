@@ -137,7 +137,8 @@ async def _run_extraction(task_id:str, db_path: str, session_path: str):
             task_info["logs"] += f"완료, 수집에 실패한 페이지들:{rets}\n"
 
             task_info["logs"] += "본문들에서 일정 수집중\n"
-            rets = make_todo_list_from_page_contents(db_path, gemini_extractor)
+            # rets = make_todo_list_from_page_contents(db_path, gemini_extractor)
+            rets = make_todo_list_from_page_contents(db_path, ollama_extractor)
             task_info["logs"] += f'완료, 추가한 일정들:{rets}'
 
             task_info["status"] = "complete"

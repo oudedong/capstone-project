@@ -12,5 +12,6 @@ async def run_extraction(db_path: str, session_path: str, depth:str = 1):
     rets = get_page_urls_to_check(db_path, 2)
     rets = await collect_page_contents(session_path, db_path, rets)
     print('수집에 실패한 페이지들:', rets, file=sys.stderr)
-    rets = make_todo_list_from_page_contents(db_path, gemini_extractor)
+    # rets = make_todo_list_from_page_contents(db_path, gemini_extractor)
+    rets = make_todo_list_from_page_contents(db_path, ollama_extractor)
     print('추가한 일정들:', rets, file=sys.stderr)

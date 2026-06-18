@@ -105,7 +105,7 @@ async def get_post_processed_page_tool(session_path: str, url: str) -> str:
 # 전역 작업 저장소
 crawl_tasks = {}
 
-async def _run_extraction(task_id:str, db_path: str, session_path: str):
+async def _run_extraction(task_id:str, db_path: str, session_path: str, depth:int):
     task_info = crawl_tasks[task_id]
     
     # stderr 리다이렉션 (Errno 11 방지)
@@ -128,7 +128,7 @@ async def _run_extraction(task_id:str, db_path: str, session_path: str):
             task_info["logs"] += "origin_urls에서 page_url들 수집중\n"
             rets = []
             for origin in origins:
-                rets += await get_sub_urls_by_click_db(session_path, origin['url'], db_path)
+                rets += await get_sub_urls_by_click_db(session_path, origin['url'], db_path, depth)
             task_info["logs"] += f"수집한 페이지 url들:{rets}\n"
 
             task_info["logs"] += "페이지url에서 본문 추출중\n"
@@ -151,13 +151,14 @@ async def _run_extraction(task_id:str, db_path: str, session_path: str):
 
 # [접수 툴] 호출 즉시 0.1초 만에 ID만 뱉고 종료 (타임아웃 절대 안 걸림)
 @mcp.tool()
-async def run_extraction_db(session_path:str, db_path:str) -> dict:
+async def run_extraction_db(session_path:str, db_path:str, depth:int=1) -> dict:
     """
     db에 origin_urls 목록에서 일정을 수집해 todo_list에 저장합니다.
 
     Args:
         session_path: 세션정보가 저장된 파일의 path
         db_path: db경로
+        depth: 탐색깊이, 기본은 1
     Returns:
         dict:
             task_id: 태스크id(태스크 결과를 조회할때 씀)
@@ -166,7 +167,7 @@ async def run_extraction_db(session_path:str, db_path:str) -> dict:
     task_id = str(uuid.uuid4())
     crawl_tasks[task_id] = {"status": "running", "logs": ""}
     
-    asyncio.create_task(_run_extraction(task_id, db_path, session_path))
+    asyncio.create_task(_run_extraction(task_id, db_path, session_path,depth))
     
     return {"task_id": task_id, "message": "일정수집이 백그라운드에서 시작되었습니다."}
 
